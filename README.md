@@ -158,5 +158,5 @@ portable/           Windows 启动器
 
 ## 许可
 
-项目新增代码与修改采用 [Apache-2.0](LICENSE)。
-alpha-zero-general 原有代码保留 [MIT](licenses/alpha-zero-general-MIT.txt)；Azalea 派生代码保留其 [许可](hex/azalea_cpu/LICENSE) 和 [修改说明](hex/azalea_cpu/NOTICE.txt)。详见 [NOTICE](NOTICE)。
+项目新增代码与修改采用 [MIT](LICENSE)。
+alpha-zero-general 原有代码保留 [MIT](licenses/alpha-zero-general-MIT.txt)；Azalea 派生代码保留其 [Apache-2.0 许可](hex/azalea_cpu/LICENSE) 和 [修改说明](hex/azalea_cpu/NOTICE.txt)。详见 [NOTICE](NOTICE)。

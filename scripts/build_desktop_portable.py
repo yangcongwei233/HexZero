@@ -106,7 +106,7 @@ def main():
                     default_simulations=12800, default_threads=4,
                     selectable_threads=list(range(4,17)), simulations=[800,1200,2000,3200,6400,12800,51200],
                     tcltk_source='https://www.python.org/ftp/python/3.11.9/amd64/tcltk.msi',
-                    license='Apache-2.0; bundled third-party notices retained')
+                    license='MIT; bundled third-party notices retained')
     if args.edition == 'competition':
         manifest.update(search_dll_sha256=digest(app/'hex/native/hex_search.dll'),
                         base_archive_sha256=digest(args.base),

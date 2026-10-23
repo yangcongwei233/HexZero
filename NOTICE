@@ -1,7 +1,7 @@
 HexZero
 Copyright 2026 HexZero contributors
 
-HexZero 的新增代码和修改采用 Apache License 2.0。
+HexZero 的新增代码和修改采用 MIT 许可。
 
 本项目基于 alpha-zero-general：
 https://github.com/suragnair/alpha-zero-general
