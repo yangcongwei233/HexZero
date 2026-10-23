@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hex · 本地对弈测试</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">⬡ <strong>HEX</strong><span>本地对弈测试</span></a><span class="local"><i></i> 本机运行</span></header>
+  <main class="app">
+    <section class="arena">
+      <div class="board-head"><div><p class="eyebrow">CONNECT YOUR SIDES</p><h1 id="title">Hex 棋盘</h1></div><span id="turnBadge" class="badge">准备就绪</span></div>
+      <div class="players"><div id="redPlayer" class="player red"><span class="stone"></span><div><strong id="redName">红方</strong><small>先手 · 连接上下</small></div></div><span class="versus">VS</span><div id="bluePlayer" class="player blue"><span class="stone"></span><div><strong id="blueName">蓝方</strong><small>后手 · 连接左右</small></div></div></div>
+      <div id="clockPanel" class="clock-panel" hidden><div><span>红方剩余</span><strong id="redClock">30:00</strong></div><button id="toggleClock">开始计时</button><div><span>蓝方剩余</span><strong id="blueClock">30:00</strong></div><small id="clockHint">手动开局不计时。</small></div>
+      <div id="previewBanner" class="preview-banner" hidden><span id="previewLabel"></span><button id="exitPreview">返回实战棋盘</button></div>
+      <div class="board-stage"><svg id="board" role="group" aria-label="Hex 棋盘"></svg></div>
+      <div class="status-box" aria-live="polite"><span id="statusDot"></span><div><strong id="status">正在连接本地服务…</strong><p id="detail">将己方棋子连成一条贯通两侧的路径即可获胜。</p></div></div>
+      <p id="notice" role="alert"></p>
+      <div class="board-foot"><label class="inline"><input id="showNumbers" type="checkbox" checked> 显示落子顺序</label><span>左下角 A1 · 红先蓝后 · 不使用交换规则</span></div>
+    </section>
+    <aside class="panel">
+      <section><p class="eyebrow">MATCH SETUP</p><h2>开始一场测试</h2><p class="hint">对手固定为你的训练模型，设置在新局生效。</p>
+        <div class="settings">
+          <label>己方<select id="mode"><option value="human">人类 · 我来下棋</option><option value="azalea">Azalea · 参考模型</option></select></label>
+          <label>己方先后手<select id="myPlayer"><option value="1">先手 / 红方 / 上下</option><option value="-1">后手 / 蓝方 / 左右</option></select></label>
+          <div class="two-col"><label>每步搜索上限<select id="mctsSims"><option value="800">800</option><option value="1200">1200</option><option value="2000">2000</option><option value="3200" selected>3200</option><option value="6400">6400</option><option value="12800">12800</option><option value="51200">51200</option></select></label><label>随机种子<input id="seed" type="number" min="0" max="4294967295" value="0" step="1"></label></div>
+          <div class="two-col"><label>每步限时<select id="moveTimeMs"><option value="0">不限时 · 按次数</option><option value="2000">2 秒</option><option value="5000">5 秒</option><option value="10000">10 秒</option><option value="20000">20 秒</option><option value="25000">25 秒</option><option value="60000">60 秒</option></select></label><label>每方总时间<select id="clockMinutes"><option value="0">不计时</option><option value="30">30 分钟包干</option></select></label></div>
+          <p class="setup-help">两种模型及候选分析均受每步限时约束；先达到次数、时间或内存上限即返回。想按时间多搜索，可把次数设高。开启棋钟后，等待操作也计时，搜索会按剩余时间及剩余空位收缩预算。单批推理不能中断，限时为尽力目标。</p>
+          <div class="two-col"><button id="newGame" class="primary">新开一局</button><button id="newManualGame" class="accent">新建手动开局</button></div>
+          <p class="setup-help">手动开局可替红、蓝双方交替落子，完成后交给模型继续。</p>
+        </div>
+        <div id="openingControls" class="opening-controls" hidden><p id="openingHint"></p><button id="finishOpening" class="primary">完成开局，开始对弈</button></div>
+        <div id="watchControls" class="two-col" hidden><button id="stepGame">下一手</button><button id="autoGame" class="accent">自动对战</button></div>
+        <div class="two-col actions"><button id="undoGame">悔棋</button><button id="saveGame">详细 JSON ↓</button></div>
+      </section>
+      <section class="record-card" aria-label="比赛棋谱与打谱">
+        <h3>比赛棋谱与打谱</h3>
+        <div class="two-col actions"><button id="importRecord">导入 TXT / JSON</button><button id="exportTxt">比赛 TXT ↓</button></div>
+        <input id="recordFile" type="file" accept=".txt,.json" hidden>
+        <p class="hint record-help">TXT 使用 GB2312；红 R 先手、蓝 B 后手。详细评语保存在 JSON 中。</p>
+        <details id="recordMetadata"><summary>队名、赛果与赛事信息</summary><div class="settings">
+          <label>先手红方队名<input id="redTeam" type="text" maxlength="160"></label>
+          <label>后手蓝方队名<input id="blueTeam" type="text" maxlength="160"></label>
+          <label>赛果<select id="recordResult"><option value="">未结束 / 未裁定</option><option value="先手胜">先手胜</option><option value="后手胜">后手胜</option></select></label>
+          <label>比赛时间与地点<input id="timePlace" type="text" maxlength="160"></label>
+          <label>赛事名称<input id="eventName" type="text" maxlength="160"></label>
+          <button id="saveRecordMetadata">保存参赛信息</button>
+        </div></details>
+        <p id="recordWarning" class="record-warning"></p>
+        <div class="replay-navigation"><button id="replayFirst" title="回到空棋盘">|◀</button><button id="replayPrevious" title="上一手">◀</button><span id="replayPosition">0 / 0 手</span><button id="replayNext" title="下一手">▶</button><button id="replayLast" title="跳到末手">▶|</button></div>
+        <input id="replaySlider" type="range" min="0" max="0" value="0" aria-label="打谱手数">
+        <button id="continueRecord" class="accent" hidden>从此局面续弈</button>
+        <details id="annotationPanel"><summary id="annotationTitle">逐手评注</summary><div class="settings">
+          <label>本手落子方视角的局面评价<select id="moveMark"><option value="">不标注</option><option value="-2">−2 · 大劣</option><option value="-1">−1 · 小劣</option><option value="0">0 · 一般</option><option value="1">+1 · 小好</option><option value="2">+2 · 大好</option></select></label>
+          <label>详细评语<textarea id="moveComment" rows="7" maxlength="4000" placeholder="记录判断依据、关键连接点与后续变化；详细内容保存在 JSON 中。"></textarea></label>
+          <div class="two-col"><button id="saveAnnotation">保存评注</button><button id="generateAnnotation">用当前分析生成</button></div>
+          <small>先分析当前局面，再生成评注。分档描述落子后的局面优劣，不等同于该手质量。</small>
+        </div></details>
+      </section>
+      <section id="analysisCard" class="analysis-card" aria-label="候选走法分析">
+        <div class="card-head"><h3>候选分析 · TOP 3</h3><span id="analysisTime"></span></div>
+        <label class="analysis-source">分析模型<select id="analysisEngine"><option value="current">当前执棋模型（人类回合用训练模型）</option><option value="trained">你的训练模型</option><option value="azalea">Azalea 参考模型</option></select></label>
+        <button id="analyzeGame" class="accent">分析当前局面</button>
+        <button id="resumePlay" hidden>继续对弈</button>
+        <p id="analysisSummary" class="hint">自动对战时可点击“暂停并分析”；手动开局和人类回合也可使用。</p>
+        <ol id="candidates"></ol>
+        <p class="analysis-note">Q 值范围 −1～+1，越高越利于当前执棋方，并非校准胜率。按访问次数排序；主变化沿搜索最多的分支展开，最多 6 手，止于已搜索位置。</p>
+      </section>
+      <section class="model-card"><div class="card-head"><h3>你的训练模型</h3><span id="device">—</span></div><p id="trainedName">加载中</p><small id="modelDetail"></small><div class="reference"><span>参考模型</span><p id="referenceName">—</p></div>
+        <div id="modelControls" hidden>
+          <label>选择训练模型<select id="modelSelect" aria-label="选择训练模型"></select></label>
+          <div class="two-col"><button id="refreshModels">刷新模型列表</button><button id="applyModel" class="accent">切换并新开局</button></div>
+          <p id="modelStatus" class="hint" aria-live="polite"></p>
+          <small>将 .onnx 和同名 .onnx.json 一起复制到 models，可放在子文件夹。空闲时每 5 秒自动发现；切换会保存当前棋谱并新开局。</small>
+          <details id="modelProblems" hidden><summary>未能加载的模型</summary><ul id="modelErrors"></ul></details>
+        </div>
+        <div id="cpuControls" hidden><label>CPU 推理线程<select id="cpuThreads" aria-label="CPU 推理线程"></select></label><button id="applyThreads">应用线程设置</button><p id="threadStatus" class="hint" aria-live="polite"></p><small>4～16 线程可选。线程更多不一定更快，建议从 4 开始；暂停对战后可调整。</small></div>
+      </section>
+      <section class="history"><div class="card-head"><h3>对局记录</h3><span id="moveCount">0 手</span></div><p id="emptyHistory" class="hint">第一手，从这里开始。</p><ol id="moves"></ol></section>
+      <p class="fineprint">双方使用各自的 MCTS，关闭探索噪声。Azalea 保留原版批次取整，实际次数可能略多于设置；次数指搜索模拟，并非网络调用次数。单局结果仅作参考。</p>
+    </aside>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

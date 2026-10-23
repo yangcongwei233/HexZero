@@ -1,0 +1,104 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 系统和编辑器文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 虚拟环境
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# 原 alpha-zero-general / IDE 文件
+/.project
+/.pydevproject
+
+# 训练输出、checkpoint 和样本
+/temp/
+temp/
+checkpoints/
+checkpoint/
+runs/
+logs/
+wandb/
+tensorboard/
+lightning_logs/
+
+# Hex 自博弈和分析数据
+selfplay_jsonl/
+selfplay_data/
+selfplay_outputs/
+games_jsonl/
+replays/
+replay_buffer/
+*.jsonl
+*.examples
+*.examples.*
+
+# 模型权重和大文件
+*.pth
+*.pth.tar
+*.pt
+*.ckpt
+*.onnx
+*.h5
+*.pb
+*.data-00000-of-00001
+*.index
+*.safetensors
+
+# numba / 编译缓存
+*.nbc
+*.nbi
+
+# 临时文件
+*.log
+*.tmp
+*.bak
+*.old
+*.pid
+
+# 本地实验产物
+outputs/
+artifacts/
+reports/
+profile/
+profiles/
+*.prof
+*.pstats
+
+# 大型预训练模型目录默认不入库
+pretrained_models/
+
+# 本机发布包、模型元数据、服务器备份和连接设置
+/dist/
+/models/
+/server_backups/
+/tmp/
+/local_config/
+
+# 原生编译产物及包含本机编译路径的元数据
+*.dll
+*.dylib
+*.so.json
+*.dll.json
+*.dylib.json
+*.zip
+*.tar.gz
+*.pem
+*.key

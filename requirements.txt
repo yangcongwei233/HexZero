@@ -1,0 +1,7 @@
+# Runtime dependencies for the PyTorch Hex trainer and TensorBoard monitoring.
+numpy>=1.21
+torch>=2.0
+tqdm>=4.64
+tensorboard>=2.9
+# Optional: pip install numba coloredlogs
+# Without numba, Hex win checks use the BFS reference implementation.
