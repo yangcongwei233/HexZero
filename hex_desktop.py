@@ -32,7 +32,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = ''
 ROOT = Path(__file__).resolve().parent
 PRESETS = (800, 1200, 2000, 3200, 6400, 12800, 51200)
 RED, BLUE = '#ce594a', '#3979c7'
-ACTORS = {'human': '人类', 'trained': 'HexZero', 'azalea': 'Azalea', 'record': '棋谱'}
+ACTORS = {'human': '人类', 'trained': 'HexZero', 'record': '棋谱'}
 MARKS = {-2: '大劣', -1: '小劣', 0: '一般', 1: '小好', 2: '大好'}
 
 
@@ -56,21 +56,24 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
 窗口仍可重绘，暂停按钮也能立即响应；模型切换和落子不会交叉执行。
 """
 
-    def __init__(self, root, models, data, model=None, threads=None):
+    def __init__(self, root, models, data, model=None, threads=None, competition=False):
         self.root, self.models, self.data = root, Path(models), Path(data)
+        self.competition = bool(competition)
+        self.model_controls = []
+        self.ai_controls = []
         self.requested_model, self.requested_threads = model, threads
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='hex-engine')
         self.service = self.future = None
         self.operation = None
         self.snapshot = self.state = self.config = None
-        self.autoplay = self.reply_pending = self.closing = False
+        self.reply_pending = self.closing = False
         self.pending_analysis = None
         self.preview = []
         self.centers = {}
         self.controls = []
         self.last_clock_poll = self.last_catalog_poll = 0.
         self.history_key = self.analysis_key = None
-        self.root.title('HexZero · 桌面对弈')
+        self.root.title('HexZero · 3250 比赛版' if self.competition else 'HexZero · 桌面对弈')
         self.root.geometry('1250x830')
         self.root.minsize(1000, 720)
         self.root.protocol('WM_DELETE_WINDOW', self.close)
@@ -116,7 +119,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         self.canvas.bind('<Button-1>', self.board_click)
         self.clock_text = tk.StringVar(value='棋钟未启用')
         ttk.Label(left, textvariable=self.clock_text, font=(self.font_family, 14), padding=8).pack()
-        self.model_info = tk.StringVar(value='ONNX FP32 · 保留 C++ 批量搜索与搜索树复用')
+        self.model_info = tk.StringVar(value='正在准备对弈环境…')
         ttk.Label(left, textvariable=self.model_info, wraplength=640, padding=8).pack(fill='x')
         self.tabs = ttk.Notebook(right)
         self.tabs.pack(fill='both', expand=True)
@@ -127,7 +130,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         self._build_analysis()
         self._build_record()
         self._build_settings()
-        self.status = tk.StringVar(value='首次启动会预热推理与搜索内核，请稍候。')
+        self.status = tk.StringVar(value='正在检查模型；未放入模型时可人人对弈。')
         ttk.Label(self.root, textvariable=self.status, padding=10, wraplength=1180).pack(fill='x')
         self.progress = ttk.Progressbar(self.root, mode='indeterminate')
         self.progress.pack(fill='x')
@@ -135,29 +138,31 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
     def _build_play(self):
         tab = self.play_tab
         tab.columnconfigure((0, 1), weight=1)
-        self.mode = tk.StringVar(value='人类')
+        self.mode = tk.StringVar(value='人机对弈' if self.competition else '人人对弈')
         self.seat = tk.StringVar(value='先手红方')
         self.simulations = tk.StringVar(value='12800')
-        for row, title, var, values in ((0, '己方', self.mode, ('人类', 'Azalea')),
-                                       (2, '己方先后手', self.seat, ('先手红方', '后手蓝方')),
+        for row, title, var, values in ((0, '对弈模式', self.mode, ('人人对弈', '人机对弈')),
+                                       (2, '人机对弈时人的先后手', self.seat, ('先手红方', '后手蓝方')),
                                        (4, '每步搜索上限', self.simulations, PRESETS)):
             ttk.Label(tab, text=title).grid(row=row, column=0, columnspan=2, sticky='w', pady=(8, 2))
-            ttk.Combobox(tab, textvariable=var, values=values, state='readonly').grid(row=row+1, column=0, columnspan=2, sticky='ew')
-        ttk.Label(tab, text='对方固定为当前选中的 HexZero 模型。\n设置在新开局时生效。', wraplength=350).grid(row=6, column=0, columnspan=2, pady=12, sticky='w')
+            combo = ttk.Combobox(tab, textvariable=var, values=values, state='readonly')
+            combo.grid(row=row+1, column=0, columnspan=2, sticky='ew')
+            if var is self.mode:
+                self.mode_combo = combo
+        ttk.Label(tab, text='人人模式由双方轮流点击落子；人机模式由模型应手。\n设置在新开局时生效。', wraplength=350).grid(row=6, column=0, columnspan=2, pady=12, sticky='w')
         self._button(tab, '新开一局', lambda: self.new_game(False), row=7, column=0)
         self._button(tab, '手动设置开局', lambda: self.new_game(True), row=7, column=1)
         self._button(tab, '完成开局', lambda: self.command('start'), row=8, column=0)
-        self._button(tab, '下一手', lambda: self.command('step'), row=8, column=1)
-        self.auto_button = self._button(tab, '自动对战', self.toggle_auto, row=9, column=0)
+        self.step_button = self._button(tab, '让模型落子', lambda: self.command('step'), row=8, column=1)
+        self.reply_button = self._button(tab, '继续模型应手', self.toggle_reply, row=9, column=0)
         self._button(tab, '悔棋', lambda: self.command('undo'), row=9, column=1)
         self._button(tab, '暂停 / 继续棋钟', self.toggle_clock, row=10, column=0, columnspan=2)
-        ttk.Label(tab, text='手动开局时，点击空位替红蓝双方交替落子。\n暂停自动对战会等待正在计算的一手结束。', wraplength=350).grid(row=11, column=0, columnspan=2, pady=14, sticky='w')
+        ttk.Label(tab, text='手动开局时，点击空位替红蓝双方交替落子。\n暂停模型应手会等待正在计算的一手结束。', wraplength=350).grid(row=11, column=0, columnspan=2, pady=14, sticky='w')
 
     def _build_analysis(self):
         tab = self.analysis_tab
         tab.columnconfigure(0, weight=1)
-        self.analysis_engine = tk.StringVar(value='当前执棋方')
-        ttk.Combobox(tab, textvariable=self.analysis_engine, values=('当前执棋方', 'HexZero', 'Azalea'), state='readonly').grid(row=0, column=0, sticky='ew')
+        ttk.Label(tab, text='HexZero · 当前执棋方视角').grid(row=0, column=0, sticky='w')
         self.analyze_button = self._button(tab, '分析当前局面', self.analyze, row=1, column=0)
         self.candidates = ttk.Treeview(tab, columns=('move', 'visits', 'value'), show='headings', height=3, selectmode='browse')
         for name, title, width in (('move', '候选', 60), ('visits', '访问', 75), ('value', 'Q / 局面等级', 165)):
@@ -173,7 +178,8 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         self.preview_scale.grid(row=4, column=0, sticky='ew')
         self._button(tab, '返回实战棋盘', self.clear_preview, row=5, column=0)
         self._button(tab, '采用选中的候选', self.play_candidate, row=6, column=0)
-        self._button(tab, '用分析生成上一手评注', lambda: self.command('annotate', generated=True), row=7, column=0)
+        generated = self._button(tab, '用分析生成上一手评注', lambda: self.command('annotate', generated=True), row=7, column=0)
+        self.ai_controls.extend((self.analyze_button, generated))
         ttk.Label(tab, text='Q 为当前执棋方视角，范围 −1～+1，不是胜率。\nMARK −2～+2 表示局面优劣。\n候选按访问次数、Q、先验排序；预览不落子。', wraplength=350).grid(row=8, column=0, sticky='w', pady=14)
 
     def _build_record(self):
@@ -202,14 +208,24 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
     def _build_settings(self):
         tab = self.settings_tab
         tab.columnconfigure(0, weight=1)
-        ttk.Label(tab, text='当前 HexZero 模型').grid(row=0, column=0, sticky='w')
+        ttk.Label(tab, text='比赛版 · 固定 3250 模型' if self.competition else '当前 HexZero 模型').grid(row=0, column=0, sticky='w')
         self.model_choice = tk.StringVar()
         self.model_combo = ttk.Combobox(tab, textvariable=self.model_choice, state='readonly', width=38)
         self.model_combo.grid(row=1, column=0, sticky='ew', pady=5)
-        self._button(tab, '切换模型并新开局', self.change_model, row=2, column=0)
-        self._button(tab, '刷新模型目录', lambda: self.command('refresh'), row=3, column=0)
-        # 环境/模型加载失败后仍允许改目录，因此不加入统一禁用按钮列表。
-        ttk.Button(tab, text='选择 models 文件夹', command=self.choose_models).grid(row=4, column=0, sticky='ew', padx=4, pady=4)
+        self.model_controls.extend((
+            self._button(tab, '加载模型并新开局', self.change_model, row=2, column=0),
+            self._button(tab, '刷新模型目录', lambda: self.command('refresh'), row=3, column=0)))
+        # 公开版允许在没有模型时选择目录；比赛版在 UI 和服务层均拒绝换模。
+        choose = ttk.Button(tab, text='选择 models 文件夹', command=self.choose_models)
+        choose.grid(row=4, column=0, sticky='ew', padx=4, pady=4)
+        self.model_controls.append(choose)
+        if self.competition:
+            self.model_combo.grid_remove()
+            for control in self.model_controls:
+                control.grid_remove()
+            ttk.Label(tab, text='已固定 3250 权重，启动时校验内容。\n支持人人对弈及与 3250 人机对弈。', wraplength=350).grid(row=1, column=0, sticky='w', pady=8)
+        else:
+            ttk.Label(tab, text='公开版不附带模型。将 .onnx 和同名 .onnx.json\n放入 models 后，加载即可启用人机与分析。', wraplength=350).grid(row=9, column=0, sticky='w', pady=6)
         self.threads = tk.StringVar(value=str(self.requested_threads or 4))
         ttk.Label(tab, text='CPU 推理线程数').grid(row=5, column=0, sticky='w', pady=(12, 2))
         ttk.Combobox(tab, textvariable=self.threads, values=tuple(range(4, 17)), state='readonly').grid(row=6, column=0, sticky='ew')
@@ -227,7 +243,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         """模型初始化也在工作线程执行，首次 Numba 编译不会冻结窗口。"""
         def initialize():
             from hex.desktop_service import DesktopService
-            self.service = DesktopService(self.models, self.data, self.requested_model, self.requested_threads)
+            self.service = DesktopService(self.models, self.data, self.requested_model, self.requested_threads, self.competition)
             return self.service.snapshot()
         self.operation = 'load'
         self.future = self.executor.submit(initialize)
@@ -249,13 +265,13 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         if not self.state or self.future is not None:
             return
         if operation not in ('step', 'state', 'refresh'):
-            self.autoplay = self.reply_pending = False
+            self.reply_pending = False
         if operation not in ('state', 'refresh', 'threads', 'save', 'export'):
             self.clear_preview()
         self._submit(operation, revision=self.state['revision'], **params)
 
     def _poll(self):
-        """处理异步结果、自动对战和时钟刷新；永远只有一个在途命令。"""
+        """处理异步结果、人机回应和时钟刷新；永远只有一个在途命令。"""
         if self.future is not None and self.future.done():
             operation, future = self.operation, self.future
             self.future = None
@@ -271,7 +287,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
                     self.snapshot, self.state, self.config = result, result['session'], result['config']
                     if first or operation in ('model', 'load'):
                         self.simulations.set(str(self.state['mctsSims']))
-                        self.mode.set('人类' if self.state['mode'] == 'human' else 'Azalea')
+                        self.mode.set('人人对弈' if self.state['mode'] == 'pvp' else '人机对弈')
                         self.seat.set('先手红方' if self.state['myPlayer'] == 1 else '后手蓝方')
                     self.render()
                 if operation in ('new', 'move', 'start') and self.state['mode'] == 'human':
@@ -279,9 +295,11 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
                 if operation not in ('state', 'refresh'):
                     warnings = self.state.get('recordWarnings', []) if self.state else []
                     self.status.set('；'.join(warnings) if warnings else '已完成。棋谱保存在 ' + str(self.data / 'games'))
+                    if operation == 'load' and self.config and self.config.get('modelError'):
+                        self.status.set('人人对弈可用。' + self.config['modelError'])
             except Exception as exc:
                 logging.exception('Desktop operation failed: %s', operation)
-                self.autoplay = self.reply_pending = False
+                self.reply_pending = False
                 self.status.set(str(exc))
                 if operation == 'close':
                     self.closing = False
@@ -303,7 +321,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
                 live = not state['winner'] and not state['openingSetup'] and not state['replayMode']
                 clock = state['clock']
                 clock_ready = not clock['enabled'] or not clock['started'] or clock['active'] is not None
-                if live and clock_ready and state['currentKind'] != 'human' and (self.autoplay or self.reply_pending):
+                if live and clock_ready and state['mode'] == 'human' and state['currentKind'] != 'human' and self.reply_pending:
                     self.reply_pending = False
                     self._submit('step', revision=state['revision'])
                 elif time.monotonic() - self.last_clock_poll > .5 and live and clock['active'] is not None:
@@ -321,15 +339,24 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
             widget.configure(state='disabled' if busy else 'normal')
         # 在模型计算时仍可请求暂停/分析，命令在这一手完成后串行执行。
         if self.future is not None and self.operation == 'step' and not self.closing:
-            self.auto_button.configure(state='normal')
+            self.reply_button.configure(state='normal')
             self.analyze_button.configure(state='normal')
-        self.auto_button.configure(text='暂停自动对战' if self.autoplay else '自动对战')
+        self.reply_button.configure(text='暂停模型应手' if self.future is not None and self.operation == 'step' else '继续模型应手')
+        if self.config and not self.config['modelAvailable']:
+            for widget in self.ai_controls:
+                widget.configure(state='disabled')
+        if self.state and self.state['mode'] == 'pvp':
+            self.reply_button.configure(state='disabled')
+            self.step_button.configure(state='disabled')
+        if self.competition:
+            for widget in self.model_controls:
+                widget.configure(state='disabled')
 
     def _options(self):
         seconds = float(self.move_seconds.get())
         if not math.isfinite(seconds):
             raise ValueError('单步秒数必须是有限数值')
-        return dict(mode='human' if self.mode.get() == '人类' else 'azalea',
+        return dict(mode='pvp' if self.mode.get() == '人人对弈' else 'human',
                     mine=1 if self.seat.get() == '先手红方' else -1,
                     simulations=int(self.simulations.get()), seed=int(self.seed.get()),
                     move_time_ms=round(seconds * 1000), clock_minutes=int(self.clock_minutes.get()))
@@ -340,26 +367,24 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         except ValueError as exc:
             messagebox.showerror('设置无效', str(exc), parent=self.root)
 
-    def toggle_auto(self):
-        if not self.state:
+    def toggle_reply(self):
+        """人机对弈暂停/恢复当前模型回应，不再提供 AI 对 AI 自动对战。"""
+        if not self.state or self.state['mode'] != 'human':
             return
         if self.future is not None:
-            self.autoplay = self.reply_pending = False
+            self.reply_pending = False
             self.status.set('正在计算的一手结束后暂停。')
-        elif self.state['mode'] != 'azalea' or self.state['openingSetup'] or self.state['replayMode'] or self.state['winner']:
-            self.status.set('自动对战需要 Azalea 模式、完成开局且对局尚未结束。')
         else:
-            self.autoplay = not self.autoplay
+            self.reply_pending = True
         self._control_states()
 
     def analyze(self):
-        kind = {'当前执棋方': 'current', 'HexZero': 'trained', 'Azalea': 'azalea'}[self.analysis_engine.get()]
-        self.autoplay = self.reply_pending = False
+        self.reply_pending = False
         if self.future is not None and self.operation == 'step':
-            self.pending_analysis = kind
+            self.pending_analysis = 'trained'
             self.status.set('当前落子完成后暂停并分析。')
         else:
-            self.command('analyze', kind=kind)
+            self.command('analyze', kind='trained')
 
     def toggle_clock(self):
         if self.state:
@@ -369,7 +394,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         state, config = self.state, self.config
         if state['winner']:
             title = ('红方' if state['winner'] == 1 else '蓝方') + ('获胜（对方超时）' if state['winnerReason'] == 'timeout' else '获胜 · 已连接目标边')
-            self.autoplay = self.reply_pending = False
+            self.reply_pending = False
         elif state['replayMode']:
             title = f"打谱 · 第 {state['replayCursor']} / {state['replayTotal']} 手"
         else:
@@ -377,9 +402,14 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
         self.turn.set(title)
         self.threads.set(str(config['inference']['threads']))
         trained = config['models']['trained']
-        iteration = trained['metadata'].get('iteration', '未知')
-        self.model_info.set(f"模型：第 {iteration} 轮 · FP32 · {self.snapshot['search_backend']} 搜索 · {config['inference']['threads']} 线程\n"
-                            f"本局上限 {state['mctsSims']} 次 / 手 · {'Azalea 可用' if config['referenceAvailable'] else 'Azalea 未加载：' + str(config['referenceError'])}")
+        self.mode_combo.configure(values=('人人对弈', '人机对弈') if trained else ('人人对弈',))
+        if trained:
+            iteration = trained['metadata'].get('iteration', '未知')
+            self.model_info.set(f"{'比赛版锁定' if self.competition else '模型'}：第 {iteration} 轮 · FP32 · {self.snapshot['search_backend']} 搜索 · {config['inference']['threads']} 线程\n"
+                                f"本局上限 {state['mctsSims']} 次 / 手")
+        else:
+            self.mode.set('人人对弈')
+            self.model_info.set('未加载模型 · 当前可人人对弈、打谱和导出棋谱。\n放入模型并在设置中加载后，可启用人机对弈与分析。')
         catalog = config.get('modelLibrary') or {}
         self.model_entries = [entry for entry in catalog.get('entries', []) if entry['available']]
         labels = [entry['label'] for entry in self.model_entries]
@@ -560,7 +590,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
     def edit_metadata(self):
         if not self.state:
             return
-        self.autoplay = self.reply_pending = False
+        self.reply_pending = False
         dialog = tk.Toplevel(self.root)
         dialog.title('队名、赛果与赛事信息')
         dialog.transient(self.root)
@@ -580,7 +610,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
     def edit_annotation(self):
         if not self.state or not self.state['moves']:
             return
-        self.autoplay = self.reply_pending = False
+        self.reply_pending = False
         move = self.state['moves'][-1]
         dialog = tk.Toplevel(self.root)
         dialog.title(f"第 {move['move']} 手评注")
@@ -603,12 +633,15 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
             self.command('model', ident=entry['id'])
 
     def choose_models(self):
+        if self.competition:
+            self.status.set('比赛版已锁定 3250 模型。')
+            return
         if self.future is not None:
             return
         path = filedialog.askdirectory(parent=self.root, initialdir=str(self.models))
         if path:
             self.models = Path(path)
-            self.autoplay = self.reply_pending = False
+            self.reply_pending = False
             self.requested_model = None
             # 在线程外读取 Tk 变量，下面的闭包只使用普通整数。
             threads = int(self.threads.get())
@@ -625,7 +658,7 @@ future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样�
 
     def close(self):
         """关闭时等待正在执行的原生推理结束，保存棋局后再释放搜索树。"""
-        self.autoplay = self.reply_pending = False
+        self.reply_pending = False
         self.pending_analysis = None
         self.closing = True
         self.status.set('正在等待当前操作结束并保存棋局…')
@@ -639,12 +672,13 @@ def main(argv=None):
     parser.add_argument('--data-dir', type=Path, default=ROOT / 'runs/desktop')
     parser.add_argument('--model', help='models 内的相对路径，例如 iteration_3250/trained.onnx')
     parser.add_argument('--threads', type=int, choices=range(4, 17))
+    parser.add_argument('--competition', action='store_true', help='比赛模式：锁定指定 3250 权重并校验内容')
     args = parser.parse_args(argv)
     args.data_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(filename=args.data_dir / 'desktop.log', level=logging.INFO,
                         format='%(asctime)s %(levelname)s %(message)s', encoding='utf-8')
     root = tk.Tk()
-    DesktopWindow(root, args.models, args.data_dir, args.model, args.threads)
+    DesktopWindow(root, args.models, args.data_dir, args.model, args.threads, args.competition)
     root.mainloop()
 
 

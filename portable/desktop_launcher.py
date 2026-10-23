@@ -13,6 +13,8 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parent
+# 打包脚本只为比赛包将此值写为 True；命令行和旧 settings.json 不能解除模型锁定。
+COMPETITION = False
 RUNTIME = ROOT / 'runtime'
 sys.path.insert(0, str(ROOT / 'app'))
 os.environ.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8', HEX_FORCE_CPU='1', CUDA_VISIBLE_DEVICES='')
@@ -40,14 +42,15 @@ def main():
             window = tk.Tk()
             window.withdraw()
             try:
-                service = DesktopService(ROOT / 'models', ROOT / 'userdata')
+                service = DesktopService(ROOT / 'models', ROOT / 'userdata', competition=COMPETITION)
                 service.perform('close')
-                print('环境检查通过：Tk 窗口、ONNX FP32、搜索引擎和可用模型。', flush=True)
+                print('环境检查通过：Tk 窗口与对弈功能；已加载模型时包含真实推理检查。', flush=True)
             finally:
                 window.destroy()
         else:
             from hex_desktop import main as desktop_main
-            desktop_main(['--models', str(ROOT / 'models'), '--data-dir', str(ROOT / 'userdata'), *options])
+            desktop_main(['--models', str(ROOT / 'models'), '--data-dir', str(ROOT / 'userdata'),
+                          *options, *(['--competition'] if COMPETITION else [])])
         return
     command = [sys.executable, '-u', '-X', 'utf8', '-X', 'faulthandler', str(Path(__file__).resolve()), '--worker']
     if args.check_environment:

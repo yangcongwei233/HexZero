@@ -15,7 +15,7 @@ import time
 from hex_play_core import HexApp, integer, MAX_RECORD_BYTES, MAX_JSON_RECORD_BYTES
 from .local_players import TrainedPlayer
 from .model_library import ModelLibrary
-from .onnx_inference import validate_trained_network
+from .competition_profile import MODEL_ID, validate_competition_model
 
 SEARCH_PRESETS = (800, 1200, 2000, 3200, 6400, 12800, 51200)
 
@@ -27,8 +27,11 @@ settings.json 仅保存用户偏好，不保存模型本身；新模型由 Model
 ONNX 和配套 JSON 必须一起复制，加载时验证 SHA-256，防止拿错模型或复制未完成。
 """
 
-    def __init__(self, models, data, model=None, threads=None):
+    def __init__(self, models, data, model=None, threads=None, competition=False):
         self.models, self.data = Path(models).resolve(), Path(data).resolve()
+        self.competition = bool(competition)
+        self.model_error = None
+        self.search_backend = None
         self.data.mkdir(parents=True, exist_ok=True)
         self.settings_path = self.data / 'settings.json'
         self.settings = self._read_settings()
@@ -40,47 +43,68 @@ ONNX 和配套 JSON 必须一起复制，加载时验证 SHA-256，防止拿错�
             threads = threads if threads is not None else self.settings.get('threads', 4)
             integer(threads, 'CPU 线程数', 4, 16)
             library = ModelLibrary(self.models)
-            # 优先显式参数，其次上次选择；本项目已确定 3250 为默认比赛模型。
-            preferred = model or self.settings.get('model')
-            if preferred is None and (self.models / 'iteration_3250/trained.onnx').is_file():
-                preferred = 'iteration_3250/trained.onnx'
-            if model is not None:
-                ident = library.choose(model)  # 明确要求的模型不可用时不可悄悄换模型。
+            # 公开版没有权重时仍提供完整人人对弈；显式指定模型或比赛版则严格失败。
+            ident = None
+            if self.competition:
+                if model is not None and str(model) not in ('3250', MODEL_ID):
+                    raise ValueError('比赛版已锁定 3250，不能用启动参数指定其他模型')
+                ident = library.choose(MODEL_ID)
+            elif model is not None:
+                ident = library.choose(model)
             else:
                 try:
-                    ident = library.choose(preferred)
+                    ident = library.choose(self.settings.get('model'))
                 except (OSError, ValueError):
-                    ident = library.choose()
+                    try:
+                        ident = library.choose()
+                    except (OSError, ValueError) as exc:
+                        self.model_error = str(exc)
             sims = self.settings.get('simulations', 12800)
             if type(sims) is not int or sims not in SEARCH_PRESETS:
                 sims = 12800
-            self.app = HexApp(self.models / ident, self.data / 'games', device='cpu',
-                              backend='onnx', threads=threads, simulations=sims,
-                              reference_checkpoint=self.models / 'azalea/reference.onnx')
-            self.app.enable_model_library(self.models)
-            validate_trained_network(self.app.net)
-            # 真实运行小批量搜索以验证环境并预热；树随即释放，不送入实战或经验池。
-            probe = TrainedPlayer(self.app.game, self.app.net, 65, 0)
-            probe.choose(self.app.game.getInitBoard(), 1)
-            self.search_backend = getattr(probe.policy.mcts, 'backend', 'python')
-            del probe
-            if self.app.reference is not None:
-                probe = self.app.reference.player(65, 1)
-                probe.choose(self.app.game.getInitBoard(), 1)
-                del probe
-            self.session_id = self.app.new_session(simulations=sims)['id']
-            import numpy, onnxruntime
-            report.update(status='passed', numpy=numpy.__version__, onnxruntime=onnxruntime.__version__,
-                          search_backend=self.search_backend, precision='FP32', threads=threads,
-                          model=ident, model_sha256=self.app.net.manifest['onnx_sha256'],
-                          azalea_available=self.app.reference is not None,
-                          azalea_error=self.app.reference_error)
+            def create_app(checkpoint):
+                # 桌面不传 reference_checkpoint；复制 Azalea 权重也不会启用对战入口。
+                return HexApp(checkpoint, self.data / 'games', device='cpu',
+                              backend='onnx', threads=threads, simulations=sims)
+            try:
+                self.app = create_app(self.models / ident if ident else None)
+                if self.app.net is not None:
+                    self._warmup()
+            except Exception as exc:
+                if self.competition or model is not None:
+                    raise
+                self.model_error = f'模型未加载：{exc}'
+                self.search_backend = None
+                self.app = create_app(None)
+            if not self.competition:
+                self.app.enable_model_library(self.models)
+            mode = 'human' if self.app.net is not None else 'pvp'
+            self.session_id = self.app.new_session(mode=mode, simulations=sims)['id']
+            import numpy
+            report.update(status='passed', numpy=numpy.__version__,
+                          search_backend=self.search_backend, threads=threads,
+                          competition=self.competition, model_available=self.app.net is not None,
+                          model_error=self.model_error)
+            if self.app.net is not None:
+                import onnxruntime
+                report.update(onnxruntime=onnxruntime.__version__, precision='FP32',
+                              model=ident, model_sha256=self.app.net.manifest['onnx_sha256'])
         except Exception as exc:
             report.update(status='failed', error=f'{type(exc).__name__}: {exc}')
             raise
         finally:
             (self.data / 'environment-check.json').write_text(
                 json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+    def _warmup(self):
+        """用独立小树验证真实推理，不污染实战访问量；比赛版同时验证固定权重。"""
+        from .onnx_inference import validate_trained_network
+        if self.competition:
+            validate_competition_model(self.app.net)
+        validate_trained_network(self.app.net)
+        probe = TrainedPlayer(self.app.game, self.app.net, 65, 0)
+        probe.choose(self.app.game.getInitBoard(), 1)
+        self.search_backend = getattr(probe.policy.mcts, 'backend', 'python')
 
     def _read_settings(self):
         """损坏的偏好文件不应阻止启动；模型清单损坏则由 ModelLibrary 严格拒绝。"""
@@ -103,7 +127,10 @@ ONNX 和配套 JSON 必须一起复制，加载时验证 SHA-256，防止拿错�
 
     def snapshot(self):
         """棋钟用单调时间；UI 只根据采样时刻显示倒计时，判负仍由核心负责。"""
-        return copy.deepcopy(dict(config=self.app.config(), session=self.session.state(),
+        config = self.app.config()
+        config.update(competition=self.competition, modelLocked=self.competition,
+                      modelError=self.model_error, playModes=['pvp', 'human'] if self.app.net is not None else ['pvp'])
+        return copy.deepcopy(dict(config=config, session=self.session.state(),
                                   sampled_at=time.monotonic(), search_backend=self.search_backend))
 
     def perform(self, operation, **params):
@@ -114,6 +141,11 @@ TXT 只含标准 MARK[-2..2]。此处绝不把对弈棋谱混入训练数据。
 """
         session = self.session
         revision = params.pop('revision', session.revision)
+        # 边界验证也在服务层执行，不能靠隐藏 UI 阻止旧入口继续发起 Azalea 对局。
+        if operation in ('new', 'import'):
+            if params.get('mode', 'pvp') not in ('human', 'pvp'):
+                raise ValueError('桌面版只支持人人对弈和人机对弈')
+            params.setdefault('mode', 'pvp' if self.app.net is None else 'human')
         if operation == 'new':
             if session.moves:
                 session.save()
@@ -129,6 +161,8 @@ TXT 只含标准 MARK[-2..2]。此处绝不把对弈棋谱混入训练数据。
         elif operation == 'undo':
             session.undo(revision)
         elif operation == 'analyze':
+            if params.get('kind', 'current') not in ('trained', 'current'):
+                raise ValueError('桌面版只使用 HexZero 模型分析')
             session.analyze(revision, params.get('kind', 'current'))
         elif operation == 'seek':
             session.seek(params['ply'], revision)
@@ -144,8 +178,14 @@ TXT 只含标准 MARK[-2..2]。此处绝不把对弈棋谱混入训练数据。
             self.app.set_threads(params['threads'])
             self._save_settings(threads=self.app.threads)
         elif operation == 'model':
-            result = self.app.select_model(params['ident'])
+            if self.competition:
+                raise ValueError('比赛版已锁定 3250，不支持切换模型')
+            result = self.app.select_model(params['ident'], mode=session.mode, mine=session.mine,
+                simulations=session.simulations, seed=session.seed, move_time_ms=session.move_time_ms,
+                clock_minutes=session.clock.minutes)
             self.session_id = result['session']['id']
+            self.model_error = None
+            self._warmup()
             self._save_settings(model=params['ident'])
         elif operation == 'refresh':
             self.app.model_catalog(refresh=True)

@@ -117,6 +117,9 @@ class HexSession:
         此约定沿用旧版棋谱。即使温度为 0，访问次数并列仍可能消耗随机数；
         分析和实战各自持有引擎，不能通过点击分析提前改变实战的随机选择。
         """
+        # 人人对弈不构造网络或搜索树，公开源码在没有权重时也能完整打谱和下棋。
+        if self.mode == 'pvp':
+            return {}
         engines = {-self.mine: TrainedPlayer(self.game, self.app.net, self.simulations, self.seed,
                                              move_time_ms=self.move_time_ms)}
         if self.mode == 'azalea':
@@ -124,6 +127,8 @@ class HexSession:
         return engines
 
     def kind(self, player):
+        if self.mode == 'pvp':
+            return 'human'
         return self.mode if player == self.mine else 'trained'
 
     def state(self):
@@ -261,6 +266,8 @@ class HexSession:
             raise ValueError('分析模型只能选择 trained、azalea 或 current')
         if kind == 'azalea' and self.app.reference is None:
             raise ValueError(self.app.reference_error)
+        if kind == 'trained' and self.app.net is None:
+            raise ValueError('尚未加载模型；可先人人对弈，放入 ONNX 模型后再使用分析')
         if self.analysis and self.analysis['revision'] == revision and self.analysis['engine'] == kind:
             return
         started = time.perf_counter()
@@ -305,7 +312,7 @@ class HexSession:
     def undo(self, revision):
         """重建引擎再重放保留棋谱，避免沿用已经被裁剪或属于未来的树节点。
 
-        人机对弈撤销人的上一手及其后的模型回应；模型对战/手动开局撤销一手。
+        人机对弈撤销人的上一手及其后的模型回应；人人对弈/手动开局撤销一手。
         如果退回手动前缀，将重新开放摆棋，不立即自动补回刚撤销的模型落子。
         """
         if revision != self.revision:
@@ -455,11 +462,16 @@ class HexApp:
     def __init__(self, checkpoint, save_dir, device='cpu', simulations=3200,
                  reference_source=None, reference_checkpoint=None, board_size=None,
                  backend='torch', threads=None):
-        self.checkpoint = Path(checkpoint).resolve()
+        self.checkpoint = Path(checkpoint).resolve() if checkpoint is not None else None
+        self.net = None
         if backend not in ('torch', 'onnx'):
             raise ValueError('未知推理后端')
         self.backend = backend
-        if backend == 'onnx':
+        if self.checkpoint is None:
+            # 无模型时只提供规则与棋谱；不导入 ONNX Runtime/PyTorch。
+            state = dict(board_size=[board_size or 11] * 2, metadata={})
+            self.threads = threads if threads is not None else 4
+        elif backend == 'onnx':
             if device != 'cpu':
                 raise ValueError('ONNX 本地对弈后端只支持 CPU')
             from hex.onnx_inference import OnnxNetwork
@@ -480,7 +492,7 @@ class HexApp:
         if len(size) != 2 or size[0] != size[1] or (board_size and size[0] != board_size):
             raise ValueError('模型棋盘尺寸与 --board-size 不匹配')
         self.game = HexGame(int(size[0]))
-        if backend == 'torch':
+        if backend == 'torch' and self.checkpoint is not None:
             self.net = NNetWrapper(self.game, config={'cuda': device == 'cuda'})
             # Playing needs neither optimizer nor training RNG state.
             self.net.load_training_state({k: v for k, v in state.items()
@@ -502,8 +514,8 @@ class HexApp:
         else:
             self.reference_error = '未找到 azalea 参考权重，请指定 --reference-checkpoint'
         self.metadata = state.get('metadata', {})
-        manifest = self.checkpoint.with_suffix(self.checkpoint.suffix + '.json')
-        if backend == 'torch' and manifest.is_file():
+        manifest = self.checkpoint.with_suffix(self.checkpoint.suffix + '.json') if self.checkpoint else None
+        if backend == 'torch' and manifest is not None and manifest.is_file():
             self.metadata.update(json.loads(manifest.read_text()))
         self.sessions = {}
         self.lock = Lock()
@@ -516,22 +528,23 @@ class HexApp:
             raise ValueError('模型目录选择需要 ONNX 推理后端')
         from hex.model_library import ModelLibrary
         self.model_library = ModelLibrary(directory, self.game.n)
-        self.model_library.model_id(self.checkpoint)
+        if self.checkpoint is not None:
+            self.model_library.model_id(self.checkpoint)
         self.on_model_changed = on_change
 
     def model_catalog(self, refresh=False):
         if self.model_library is None:
             return None
         result = self.model_library.refresh() if refresh else self.model_library.snapshot()
-        result.update(selectedId=self.model_library.model_id(self.checkpoint),
-                      activeSha256=self.net.manifest['onnx_sha256'])
+        result.update(selectedId=self.model_library.model_id(self.checkpoint) if self.checkpoint else None,
+                      activeSha256=self.net.manifest['onnx_sha256'] if self.net else None)
         return result
 
     def select_model(self, ident, mode='human', mine=1, simulations=None, seed=0, move_time_ms=0, clock_minutes=0):
         if self.model_library is None:
             raise ValueError('未配置模型目录')
         move_time_ms = self.validate_move_time(move_time_ms)
-        simulations = self.validate_new_session(mode, mine, simulations, seed, False)
+        simulations = self.validate_new_session(mode, mine, simulations, seed, False, require_model=False)
         from hex.onnx_inference import OnnxNetwork, validate_trained_network
         checkpoint = self.model_library.resolve(ident)
         try:
@@ -558,6 +571,9 @@ class HexApp:
         integer(threads, 'CPU 推理线程数', 4, 16)
         if self.backend != 'onnx':
             raise ValueError('此设置仅适用于优化后的 ONNX 推理版')
+        if self.net is None:
+            self.threads = threads
+            return self.config()
         if threads != self.threads:
             from hex.onnx_inference import OnnxNetwork
             # Construct both sessions before committing. Live players share these
@@ -579,19 +595,22 @@ class HexApp:
         return dict(boardSize=self.game.n, device=self.device, defaultSimulations=self.default_simulations,
                     inference=dict(backend=self.backend, threads=self.threads, precision='FP32',
                                    configurable=self.backend == 'onnx', minThreads=4, maxThreads=16),
+                    modelAvailable=self.net is not None,
                     referenceAvailable=self.reference is not None, referenceError=self.reference_error,
                     modelLibrary=self.model_catalog(),
                     models=dict(trained=dict(name=self.checkpoint.name, path=str(self.checkpoint),
-                                             metadata=self.metadata),
+                                             metadata=self.metadata) if self.checkpoint else None,
                                 azalea=dict(name=self.reference.checkpoint.name, path=str(self.reference.checkpoint))
                                 if self.reference else None),
                     search=dict(trained='HexZero batched MCTS, batch 32, cpuct 0.5',
                                 azalea='Original Azalea MCTS and checkpoint search settings',
                                 noise=False, maxSimulations=100000, maxMoveTimeMs=120000))
 
-    def validate_new_session(self, mode, mine, simulations, seed, manual_opening):
-        if mode not in ('human', 'azalea'):
-            raise ValueError('己方只能选择 human 或 azalea')
+    def validate_new_session(self, mode, mine, simulations, seed, manual_opening, require_model=True):
+        if mode not in ('human', 'pvp', 'azalea'):
+            raise ValueError('对局模式必须为 human、pvp 或 azalea')
+        if require_model and mode != 'pvp' and self.net is None:
+            raise ValueError('尚未加载模型，请先人人对弈或在设置中加载 ONNX 模型')
         integer(mine, '先后手', -1, 1)
         if mine not in (-1, 1):
             raise ValueError('先后手必须是 1 或 -1')

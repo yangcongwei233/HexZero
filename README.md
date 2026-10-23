@@ -9,19 +9,26 @@ HexZero 是一个面向计算机博弈比赛的海克斯棋（Hex）AlphaZero �
 ## 原生桌面对弈
 
 现在提供独立的 Tk 桌面窗口，直接调用本地引擎，不使用浏览器、WebView 或 HTTP 服务。
-保留 3250 模型、Azalea、人机对弈、手动开局、三个候选及后续变化、打谱、详细评注和比赛棋钟。
+对弈模式为人人对弈和人机对弈，不再提供 Azalea 对战入口。
+保留手动开局、三个候选及后续变化、打谱、详细评注和比赛棋钟。
 ONNX 推理保持 FP32，继续使用 C++ 批量搜索与树复用，不做量化。
+
+公开源码与公开桌面包不附带任何模型，未加载模型时可直接人人对弈、打谱和导出棋谱。
+人机与分析功能保留，比赛后将模型放入 `models`，在“设置”中加载即可启用，无须修改源码。
+单独的比赛包只附带指定 3250 模型，启动时校验固定 SHA-256，并禁止切换模型。
+该限制用于防止比赛时误选模型，不是源码防篡改机制；比赛包不上传 GitHub。
 
 从源码启动（Python 3.11+；Windows 使用 python.org 标准安装版并包含 Tcl/Tk）：
 
 ```bash
 python -m pip install -r requirements-desktop.txt
-python hex_desktop.py --models models --model iteration_3250/trained.onnx
+python hex_desktop.py --models models
 ```
 
 Windows 也可双击 `START_DESKTOP.bat`。Linux 若缺少 Tk，需要安装对应 Python 的 Tk 组件。
-模型文件不在源码仓库：请将 `trained.onnx` 与 `trained.onnx.json` 放入 `models/iteration_3250/`，
-将 `reference.onnx` 与清单放入 `models/azalea/`。新模型复制进目录后会自动出现在选择列表中。
+模型文件不在源码仓库：需要人机功能时，将 `trained.onnx` 与 `trained.onnx.json` 一起放入
+`models/iteration_轮次/`。新模型复制进目录后会自动出现在选择列表中，加载后可选择人机对弈。
+不再需要 Azalea 权重，即使目录中有参考模型，也不会被桌面版加载。
 没有 C++ 库时会回退 Python/Numba 搜索；构建方式见 `hex/native/README.txt`。
 只运行桌面对弈不需要 PyTorch，训练仍使用后文的 `requirements.txt`。
 
@@ -33,12 +40,16 @@ Windows 也可双击 `START_DESKTOP.bat`。Linux 若缺少 Tk，需要安装对�
 
 - `hex_desktop.py`：原生控件、六边形棋盘、预览、异步事件与关闭保存。
 - `hex/desktop_service.py`：独占工作线程的模型服务、环境检查、设置保存和命令分派。
+- `hex/competition_profile.py`：比赛包指定 3250 权重的轮次与哈希检查，不含模型内容。
 - `hex_play_core.py`：与界面无关的对局状态机、双方搜索树、棋钟和棋谱业务。
 - `hex/native_mcts.py`：C++ ABI、节点快照、批量推理、树复用及内存保护说明。
 - `portable/desktop_launcher.py`：Windows 的 Tcl/Tk 路径设置与原生进程异常日志。
 - `scripts/build_desktop_portable.py`：从已验证的 Windows 运行库、模型和官方 Tcl/Tk 组件构建离线桌面包。
 
-完整包构建产物为 `dist/HexDesktop-Windows-x64.zip`，详细使用说明见 `portable/README-Desktop.txt`。
+公开包为 `dist/HexDesktop-Public-Windows-x64.zip`（无模型）；比赛包为
+`dist/HexCompetition-3250-Windows-x64.zip`（固定 3250）。两者都不含 Azalea 权重。
+详细使用说明见 `portable/README-Desktop.txt`。构建脚本用 `--edition public` 或
+`--edition competition` 选择版本，默认是无模型公开版，防止误发布比赛权重。
 源码仓库保留训练和对弈代码，自动测试文件与测试产物仅留开发机，不提交到 GitHub。
 旧 `hex_play_server.py` / `hex_web/` 保留兼容入口，桌面版不加载它们。
 
@@ -323,7 +334,10 @@ TensorBoard 新增 `teacher/dataset_samples`、`teacher/target_fraction`、`teac
 
 `scripts/continue_hex_run.py` 可通过 `--resume-source-dir`、`--teacher-manifest`、`--teacher-fraction` 在当前训练段自然结束后切换到教师指导版本。它会等待采样完整发布并校验数据，保留切换前的完整模型/经验池快照，然后恢复优化器、RNG 和经验池继续训练；不会把未完成文件或评测棋谱直接塞入训练。
 
-## 本地对弈测试
+## 旧网页入口（兼容开发工具）
+
+以下为保留的历史网页工具说明；新的桌面发行版只提供人人与人机对弈，
+不加载此入口，不附带或加载 Azalea 权重。训练与历史评测工具仍可独立使用。
 
 对手固定为指定的 **HexZero 训练模型**，己方可选人类或相邻 `azalea` 项目提供的参考模型。浏览器界面支持先后手、搜索次数、随机种子、单步/自动对战、暂停、悔棋、胜利路径和棋谱导出。比赛显示采用红方先手连接上下、蓝方后手连接左右，左下角 A1，底边 A～K、左边从下到上 1～11，不使用交换规则。仅显示颜色与外部坐标转换，模型内部 +1 先手上下、-1 后手左右和训练数据约定不变。
 
@@ -370,11 +384,11 @@ python scripts/sync_play_model.py \
 
 可将本机默认连接设置写入不提交到 Git 的 `local_config/server.json`，字段为 `server`、`port`、`run_dir`、`remote_python`，之后可不带参数运行；命令行参数优先。脚本只读服务器断点，传输约 2.4 MiB 推理权重，不下载回放，不在服务器写入额外断点。来源轮次、校验值记录在 `trained.pth.tar.json`；服务器后续训练不会改变已加载的本地模型。
 
-Windows 10/11 x64 桌面离线版构建产物为 `dist/HexDesktop-Windows-x64.zip`，固定下载路径 `dist/HexLocal-Windows-x64.zip` 同步提供此包：解压后双击 `START_HEX.bat`。2026-10-23 发布包默认使用 3250 轮模型、12800 次搜索，包含 Azalea 参考模型。使用 ONNX Runtime 原生 CPU 推理与兼容版 C++ 搜索内核，保持 FP32，不使用量化；无需安装 Python、PyTorch、CUDA 或 C++ 编译器。桌面“设置”中可选 4～16 个 CPU 线程，应用后保留棋局，并保存设置供下次启动使用。发布包默认 4 线程。
+Windows 10/11 x64 桌面发行版分为公开版 `dist/HexDesktop-Public-Windows-x64.zip` 和比赛版 `dist/HexCompetition-3250-Windows-x64.zip`。解压到新目录后双击 `START_HEX.bat`，不需要另装 Python 或编译器。公开版没有权重，默认人人对弈；复制 ONNX 与同名 JSON 并加载后可启用人机。比赛版固定 3250，默认 12800 次搜索、4 线程，不允许替换或切换到其他模型。两版均无 Azalea 对战入口、无 Azalea 权重；保持 FP32，保留兼容版 C++ 搜索。旧固定下载路径 `dist/HexLocal-Windows-x64.zip` 提供比赛包，`dist/HexDesktop-Windows-x64.zip` 提供无模型公开包。
 
-Git 仓库保存训练与对弈源码、配置、开局库和文档；自动测试文件、模型、训练日志、经验池、评测产物、服务器备份与 Windows 安装包不随源码提交。首次克隆后需自行准备模型；预编译原生库也不入库，可按 `hex/native/README.txt` 构建。
+Git 仓库保存训练与对弈源码、配置、开局库和文档；自动测试文件、模型、训练日志、经验池、评测产物、服务器备份与 Windows 安装包不随源码提交。首次克隆即可在安装依赖后人人对弈；人机功能需自行准备模型。预编译原生库也不入库，可按 `hex/native/README.txt` 构建。
 
-每次启动检查 Tk、64 位运行库及所选模型的真实推理，并预热搜索；`CHECK_ENV.bat` 可单独检查，记录在 `userdata/environment-check.json`。`START_HEX_PYTHON.bat` 保留 ONNX 推理，只切换为 Python 搜索核心。包内保留 Azalea 源码和许可，并包含经过数值验证的 ONNX 模型。导出脚本为 `scripts/export_play_onnx.py`，桌面打包脚本为 `scripts/build_desktop_portable.py`，使用说明在 `portable/README-Desktop.txt`。桌面交互与真实模型已在 Linux 验证；新界面尚未在 Windows 实机验证。
+启动时检查 Tk 与对弈环境；有模型时再检查真实推理并预热搜索。`CHECK_ENV.bat` 可单独检查，记录在 `userdata/environment-check.json`。`START_HEX_PYTHON.bat` 保留 ONNX 推理与比赛模型锁定，只切换为 Python 搜索核心。导出脚本为 `scripts/export_play_onnx.py`，桌面打包脚本为 `scripts/build_desktop_portable.py`。桌面交互与真实模型在 Linux 验证；新桌面界面尚未在 Windows 实机验证。
 
 ## 输出文件
 
@@ -513,4 +527,4 @@ python main_hex.py --board-size 11 \
 
 当前仓库用于个人研究、比赛训练和工程实验。公开提交训练与对弈源码、配置、开局库和文档；测试文件及测试产物仅保留本机，不提交模型权重、训练样本、日志和缓存。
 
-Windows 桌面离线版支持根目录 `models` 自动扫描：复制任意模型子目录中的 `trained.onnx` 与 `trained.onnx.json`，在“设置”中选择并新开局，选择及线程数会保存。默认附带 3250 轮和 Azalea。新增断点可在开发环境用 `python scripts/export_play_onnx.py --checkpoint checkpoint_新轮次.pth.tar --output iteration_新轮次` 转换，再复制两个输出文件；Windows 端无需 PyTorch。
+公开桌面版支持根目录 `models` 自动扫描：复制模型子目录中的 `trained.onnx` 与 `trained.onnx.json`，在“设置”中加载后即可选择人机对弈。默认不附带任何模型；比赛版固定 3250，不提供模型选择。新增断点可在开发环境用 `python scripts/export_play_onnx.py --checkpoint checkpoint_新轮次.pth.tar --output iteration_新轮次` 转换，再复制两个输出文件；Windows 端无需 PyTorch。

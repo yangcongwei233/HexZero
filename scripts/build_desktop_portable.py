@@ -1,13 +1,15 @@
 """构建 Windows 原生桌面包，复用已验证的 FP32 运行库与模型。
 
 输入：现有 Windows x64 完整包，以及 Python 3.11.9 官方 tcltk.msi 解出的目录。
-仅复用 runtime 和 3250/Azalea 模型；app 重新从当前源码生成，不携带网页、测试、
-评测报告、棋谱或开发机配置。构建输出必须是新目录，防止覆盖用户现有棋局。
+公开版仅复用 runtime，比赛版另包含固定 3250 模型；两版都不附带 Azalea 权重。
+app 重新从当前源码生成，不携带网页、测试、评测报告、棋谱或开发机配置。
+构建输出必须是新目录，防止覆盖用户现有棋局。
 
 Linux 构建示例：
   msiextract -C dist/desktop-build-cache/tk-runtime tcltk.msi
   python scripts/build_desktop_portable.py --base dist/HexLocal-Windows-x64-3250.zip \
-    --tk-runtime dist/desktop-build-cache/tk-runtime --output dist/HexDesktop-Windows-x64
+    --tk-runtime dist/desktop-build-cache/tk-runtime --edition public \
+    --output dist/HexDesktop-Public-Windows-x64
 """
 import argparse
 import hashlib
@@ -33,7 +35,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', type=Path, required=True)
     parser.add_argument('--tk-runtime', type=Path, required=True)
-    parser.add_argument('--output', type=Path, default=ROOT / 'dist/HexDesktop-Windows-x64')
+    parser.add_argument('--edition', choices=('public', 'competition'), default='public')
+    parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     output, tk_runtime = args.output.resolve(), args.tk_runtime.resolve()
     if output.exists():
@@ -49,8 +52,11 @@ def main():
             if info.is_dir() or relative.is_absolute() or '..' in relative.parts:
                 continue
             name = relative.as_posix()
-            if not (name.startswith('runtime/') or name.startswith('models/iteration_3250/')
-                    or name.startswith('models/azalea/')):
+            # ORT 自带的 iris/sigmoid 示例数据不用于真实推理，公开包也无需携带。
+            if name.startswith('runtime/Lib/site-packages/onnxruntime/datasets/'):
+                continue
+            if not (name.startswith('runtime/') or
+                    (args.edition == 'competition' and name.startswith('models/iteration_3250/'))):
                 continue
             target = output / Path(relative)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +77,11 @@ def main():
     # Windows 包不附带 Linux 动态库，但完整保存 Azalea 的许可和修改说明。
     for path in (app/'hex/native').glob('*.so*'):
         path.unlink()
-    shutil.copy2(ROOT/'portable/desktop_launcher.py', output/'launcher.py')
+    launcher = (ROOT/'portable/desktop_launcher.py').read_text(encoding='utf-8')
+    if args.edition == 'competition':
+        launcher = launcher.replace('COMPETITION = False', 'COMPETITION = True')
+    (output/'launcher.py').write_text(launcher, encoding='utf-8')
+    (output/'models').mkdir(exist_ok=True)
     shutil.copy2(ROOT/'portable/README-Desktop.txt', output/'README-Desktop.txt')
     shutil.copy2(ROOT/'portable/README-models.txt', output/'models/README.txt')
     for name, options in (('START_HEX.bat', ''), ('CHECK_ENV.bat', '--check-environment')):
@@ -84,16 +94,27 @@ def main():
         (output/name).write_bytes(content.replace('\n','\r\n').encode('utf-8'))
     (output/'START_HEX_PYTHON.bat').write_bytes(
         b'@echo off\r\nsetlocal\r\nset "HEX_SEARCH_BACKEND=python"\r\ncall "%~dp0START_HEX.bat"\r\nendlocal\r\n')
-    manifest = dict(release='3250 native desktop', release_date='2026-10-23',
+    if args.edition == 'competition':
+        # 不能把任意名为 iteration_3250 的目录当成选定模型；检查实际内容及轮次。
+        import sys
+        sys.path.insert(0, str(ROOT))
+        from hex.competition_profile import MODEL_ID, MODEL_SHA256
+        model = output/'models'/MODEL_ID
+        header = json.loads(Path(str(model)+'.json').read_text(encoding='utf-8'))
+        if digest(model) != MODEL_SHA256 or header.get('onnx_sha256') != MODEL_SHA256 or header.get('metadata', {}).get('iteration') != 3250:
+            raise ValueError('Competition model does not match the fixed 3250 weights')
+    manifest = dict(release='HexZero native desktop', edition=args.edition, release_date='2026-10-23',
                     ui='Tk native desktop; no browser or HTTP server',
                     platform='Windows 10/11 x64', python='3.11.9', precision='FP32',
-                    default_model=3250, default_simulations=12800, default_threads=4,
+                    bundled_models=[3250] if args.edition == 'competition' else [],
+                    model_locked=args.edition == 'competition', azalea_bundled=False,
+                    default_simulations=12800, default_threads=4,
                     selectable_threads=list(range(4,17)), simulations=[800,1200,2000,3200,6400,12800,51200],
                     search_dll_sha256=digest(app/'hex/native/hex_search.dll'),
                     base_archive_sha256=digest(args.base),
                     tcltk_source='https://www.python.org/ftp/python/3.11.9/amd64/tcltk.msi',
                     tcltk_files={name:digest(tk_runtime/name) for name in ('DLLs/_tkinter.pyd','DLLs/tcl86t.dll','DLLs/tk86t.dll')},
-                    validation='Linux native GUI and real model workflows tested; Windows target execution not yet performed')
+                    validation='See local release validation report; Windows target execution not yet performed')
     (output/'build-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     files=sorted(p for p in output.rglob('*') if p.is_file())
     (output/'SHA256SUMS.txt').write_text(''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files))
