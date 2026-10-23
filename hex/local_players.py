@@ -17,13 +17,8 @@ from utils import dotdict
 
 
 class TrainedPlayer:
-    """将原始棋盘转换为训练网络的视角，再使用现有批量 MCTS。
-
-    网络始终认为轮到 +1 连接上下：后手输入需转置并交换颜色，输出动作
-    再变换回原棋盘。C++/Python 两种搜索均复用相同策略封装和 FP32 网络。
-    实战 temperature=0、根噪声关闭；但最大访问次数并列时仍随机选择，
-    seed 决定这次打破平局的结果。最佳走法唯一时，换种子不会强行换招。
-    """
+    """将原棋盘转为当前方视角，使用批量 MCTS 和 FP32 网络。
+    实战关闭根噪声；温度为 0 时，seed 仍影响访问次数并列的选择。"""
     def __init__(self, game, net, simulations, seed, move_time_ms=0):
         self.game = game
         self.move_time_ms = move_time_ms
@@ -49,11 +44,7 @@ class TrainedPlayer:
         }
 
     def observe(self, board, player, action):
-        """双方每次真实落子都推进树根，仅保留实际落点的子树。
-
-        手动开局同样必须调用：如果仅在界面画棋子而不推进引擎，后续搜索
-        就会基于错误的局面。分析预览不调用此方法，因此不影响实战树。
-        """
+        """每次真实落子都推进树根；手动开局也需同步，候选预览不调用。"""
         self.policy.execute_action(self.game.actionToCanonical(action, player))
         self.policy.last_move = action
 
@@ -67,11 +58,7 @@ class ReferenceState:
 
 
 class ReferenceEnvironment:
-    """Azalea's 1-based moves and 0/1/2 boards over our tested Hex rules.
-
-    Its second-player normalization is an anti-diagonal reflection, whereas
-    HexZero uses a transpose. Keep Azalea's exact convention here.
-    """
+    """适配 Azalea 的 1-based 落点和 0/1/2 棋盘；后手沿用其反对角线变换。"""
     def __init__(self, size):
         self.game = HexGame(size)
         self.board = self.game.getInitBoard()

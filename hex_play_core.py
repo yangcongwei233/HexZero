@@ -1,13 +1,5 @@
-"""Hex 对弈业务核心：桌面窗口与旧网页入口共用，不依赖 HTTP 或 Tk。
-
-状态约定：+1 为先手红方（连接上下），-1 为后手蓝方（连接左右）。
-board[row, col] 的 row 从上往下增加；比赛坐标为字母 col 与 n-row。
-
-HexApp 管理网络、模型目录与会话；HexSession 管理单局、搜索树、棋钟和棋谱。
-界面只能通过这些方法修改棋局，不能直接改 board，否则两个引擎的树会失步。
-方法调用需要由调用方串行化：网页使用 app.lock，桌面使用单工作线程。
-revision 用于拒绝基于旧棋盘的命令；分析使用独立搜索树，不增加实战搜索预算。
-"""
+"""对弈核心，供桌面和旧网页入口共用；调用方须串行访问。
++1 红先连上下，-1 蓝后连左右；内部行号向下，显示坐标 A1 在左下。"""
 import base64
 import copy
 from collections import deque
@@ -81,11 +73,7 @@ def winning_path(board, winner):
 
 
 class HexSession:
-    """单局状态机：普通对局、手动摆开局、只读打谱三种状态互斥。
-
-    每个引擎具有独立随机数状态与搜索树；mine 只决定用户/参考模型执哪方，
-    不改变红先蓝后规则。复盘 seek 不走真实引擎；续弈会重建引擎并重放前缀。
-    """
+    """管理单局、手动开局及打谱；mine 决定执方，不改变红先蓝后。"""
     def __init__(self, app, mode, mine, simulations, seed, manual_opening=False, move_time_ms=0, clock_minutes=0):
         self.app, self.game = app, app.game
         self.move_time_ms = app.validate_move_time(move_time_ms)
@@ -112,11 +100,7 @@ class HexSession:
         self.engines = self.make_engines()
 
     def make_engines(self):
-        """HexZero 使用 seed，Azalea 使用 seed+1，避免共享随机数流。
-
-        此约定沿用旧版棋谱。即使温度为 0，访问次数并列仍可能消耗随机数；
-        分析和实战各自持有引擎，不能通过点击分析提前改变实战的随机选择。
-        """
+        """实战与分析使用独立搜索树和 RNG；HexZero 用 seed，参考模型用 seed+1。"""
         # 人人对弈不构造网络或搜索树，公开源码在没有权重时也能完整打谱和下棋。
         if self.mode == 'pvp':
             return {}
@@ -132,11 +116,7 @@ class HexSession:
         return self.mode if player == self.mine else 'trained'
 
     def state(self):
-        """生成界面所需状态，并检查真实棋钟是否到期。
-
-        此函数可能因超时更新 winner/revision，不能在搜索工作线程之外并发调用。
-        网页将其序列化为 JSON，桌面服务在工作线程深拷贝后交给主线程。
-        """
+        """返回界面状态；检查棋钟可能触发超时判负，须在引擎线程调用。"""
         self.refresh_clock()
         can_undo = bool(self.moves) if self.opening_setup or self.mode == 'azalea' else any(
             m['actor'] == 'human' or m.get('source') == 'manual_opening' for m in self.moves)
@@ -191,11 +171,7 @@ class HexSession:
                 raise ValueError('棋钟已暂停，请先继续计时')
 
     def apply(self, action, info=None):
-        """唯一的真实落子入口，同时维护规则、双方搜索树、棋钟和自动存谱。
-
-        action 是原始棋盘 row*n+col，而非网络规范化坐标；每个玩家适配器
-        负责自己的坐标转换。树推进也计入比赛耗时，超时则不能提交该落子。
-        """
+        """按原始坐标 row*n+col 落子，并推进双方搜索树、棋钟和存谱。"""
         player = self.player
         next_board, next_player = self.game.getNextState(self.board, player, int(action))
         for engine in self.engines.values():
@@ -252,11 +228,7 @@ class HexSession:
         self.saved_path = None
 
     def analyze(self, revision, kind='current'):
-        """用独立树复盘到当前局面，搜索后提取最多三条已探索主变化。
-
-        不给实战树追加访问次数，不修改实战 RNG；Q 以当前执棋方为正方向。
-        相同局面与分析引擎的结果可缓存；任何真实落子、悔棋、跳谱都会失效。
-        """
+        """独立搜索并缓存前三候选，不增加实战访问量；Q 为当前执棋方视角。"""
         self.check_revision(revision)
         if kind == 'current':
             kind = self.kind(self.player)
@@ -310,11 +282,7 @@ class HexSession:
         self.apply(action, info)
 
     def undo(self, revision):
-        """重建引擎再重放保留棋谱，避免沿用已经被裁剪或属于未来的树节点。
-
-        人机对弈撤销人的上一手及其后的模型回应；人人对弈/手动开局撤销一手。
-        如果退回手动前缀，将重新开放摆棋，不立即自动补回刚撤销的模型落子。
-        """
+        """人机撤回人的上一手及回应，人人撤一手；重建树并恢复棋钟。"""
         if revision != self.revision:
             raise ValueError('棋局已更新，请刷新后重试')
         if not self.state()['canUndo']:
@@ -347,11 +315,7 @@ class HexSession:
             self.clock.restore(clock_snapshot)
 
     def seek(self, ply, revision):
-        """只读跳谱：保存完整 record_moves，显示的 moves 只是前 ply 手。
-
-        跳到中途也不会截断导出的完整棋谱；“从此局面续弈”另建会话，
-        从而保留原始棋谱与评语。此时不会自动运行模型，棋钟暂停。
-        """
+        """显示棋谱前 ply 手，保留完整记录供导出；续弈另建分支。"""
         if revision != self.revision:
             raise ValueError('棋局已更新，请刷新后重试')
         integer(ply, '打谱手数', 0, len(self.record_moves) if self.replay_mode else len(self.moves))
@@ -384,11 +348,7 @@ class HexSession:
         self.save()
 
     def annotate(self, revision, mark=None, comment='', generated=False):
-        """评注属于刚下完的那一手，自动评分需把当前方 Q 翻成落子方视角。
-
-        MARK 是局面等级而非“这一手导致的损失”；评价单手质量需要比较落子前
-        的候选和落子后估值，不能仅凭这里一个 Q 值认定失误。
-        """
+        """评注属于上一手；自动 MARK 将当前方 Q 转为落子方视角，不代表单手损失。"""
         if revision != self.revision or not self.moves:
             raise ValueError('请先选择一手有效棋子，再添加评注')
         if mark is not None:
@@ -454,11 +414,7 @@ class HexSession:
 
 
 class HexApp:
-    """模型与会话的生命周期管理器，允许网页和原生桌面共享完全相同的棋力。
-
-    ONNX 模型保持 FP32；线程数只改变推理运行配置，不改变网络权重。
-    换模型先校验输出并保存旧棋局，再建立新会话，失败时恢复旧模型对象。
-    """
+    """管理网络和会话；换模先校验、保存旧局，再建立新会话。"""
     def __init__(self, checkpoint, save_dir, device='cpu', simulations=3200,
                  reference_source=None, reference_checkpoint=None, board_size=None,
                  backend='torch', threads=None):

@@ -1,8 +1,4 @@
-"""Read-only MultiPV views of local HexZero and original Azalea search trees.
-
-Values are always expressed for the player to move at the analysis root.
-Only visited edges extend a PV; an unexplored line is never invented.
-"""
+"""读取前三候选与已搜索主变化；Q 为根节点当前方视角，不补造未搜索分支。"""
 import numpy as np
 
 

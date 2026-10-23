@@ -1,8 +1,4 @@
-"""旧网页兼容入口；对弈状态与模型管理已迁入 hex_play_core。
-
-新桌面程序直接调用同一个核心，无需启动此 HTTP 服务。保留原导入名称，
-使已有本地测试、运行脚本及旧版便携启动器仍能使用。
-"""
+"""旧网页兼容入口，共用 hex_play_core；桌面版不启动此服务。"""
 import argparse
 import json
 import logging

@@ -1,9 +1,4 @@
-"""Windows 离线桌面版启动器：配置 Tcl/Tk，监督独立的原生推理进程。
-
-Python 嵌入式发行版默认不带 Tk；构建脚本补入同版本官方 tcltk.msi 的内容。
-这里仅为当前进程设置 DLL 和 Tcl 路径，不安装系统组件、不修改机器环境变量。
-父进程保存日志并报告 C++/ONNX 异常退出；运行中的 GUI 无任何本地 HTTP 服务。
-"""
+"""Windows 桌面启动器：配置内置 Tcl/Tk，保存子进程日志和异常退出码。"""
 import argparse
 import json
 import os

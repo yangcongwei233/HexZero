@@ -1,15 +1,5 @@
-"""HexZero 原生桌面对弈入口（Tk），没有浏览器、WebView 或 HTTP 服务。
-
-启动：python hex_desktop.py --models models --model iteration_3250/trained.onnx
-依赖：requirements-desktop.txt，以及 Python 自带的 Tcl/Tk。
-
-架构说明：
-1. Tk 主线程仅处理绘制和输入；所有模型推理、棋谱操作都交给唯一工作线程。
-2. 每次命令返回不可共享的棋局快照；revision 防止对旧棋盘执行新命令。
-3. 暂停只阻止下一手，不能强行终止正在执行的 ONNX/C++ 批次。
-4. 分析与候选预览不会更改实战棋盘；只有人类/手动开局模式可以手工落子。
-5. 内部行号向下增长，显示坐标为 A1 在左下，红先连接上下、蓝后连接左右。
-"""
+"""Tk 桌面对弈：主线程绘图，单工作线程处理棋局和推理。
+运行：python hex_desktop.py --models models"""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import logging
@@ -22,8 +12,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter import font as tkfont
 
-# 必须在工作线程导入 NumPy/ONNX 之前设置，防止 BLAS 额外创建大量线程。
-# 用户选择的 4～16 线程由 ONNX intra_op 控制，批量搜索规则完全不变。
+# 导入 NumPy 前限制 BLAS 线程；界面线程数只控制 ONNX intra_op。
 for _name in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_name, '1')
 os.environ['HEX_FORCE_CPU'] = '1'
@@ -50,11 +39,7 @@ def score_label(value):
 
 
 class DesktopWindow:
-    """GUI 仅保存快照和展示状态，搜索树由 DesktopService 独占。
-
-future 在 Tk.after 中轮询，工作线程从不调用任何 Tk API。这样长时间搜索时
-窗口仍可重绘，暂停按钮也能立即响应；模型切换和落子不会交叉执行。
-"""
+    """界面保存只读快照；工作线程独占搜索树，结果由 Tk.after 轮询。"""
 
     def __init__(self, root, models, data, model=None, threads=None, competition=False):
         self.root, self.models, self.data = root, Path(models), Path(data)

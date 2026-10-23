@@ -1,16 +1,5 @@
-"""构建 Windows 原生桌面包，复用已验证的 FP32 运行库与模型。
-
-输入：现有 Windows x64 完整包，以及 Python 3.11.9 官方 tcltk.msi 解出的目录。
-公开版仅复用 runtime，比赛版另包含固定 3250 模型；两版都不附带 Azalea 权重。
-app 重新从当前源码生成，不携带网页、测试、评测报告、棋谱或开发机配置。
-构建输出必须是新目录，防止覆盖用户现有棋局。
-
-Linux 构建示例：
-  msiextract -C dist/desktop-build-cache/tk-runtime tcltk.msi
-  python scripts/build_desktop_portable.py --base dist/HexLocal-Windows-x64-3250.zip \
-    --tk-runtime dist/desktop-build-cache/tk-runtime --edition public \
-    --output dist/HexDesktop-Public-Windows-x64
-"""
+"""构建 Windows 桌面包：public 无模型，competition 固定 3250；输出目录须不存在。
+输入为已有 Windows 运行库包和 Python 3.11.9 官方 tcltk.msi 解压目录。"""
 import argparse
 import hashlib
 import json

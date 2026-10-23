@@ -1,9 +1,4 @@
-"""桌面对弈的串行服务层：将 GUI 操作映射到 HexApp/HexSession。
-
-此模块不导入 Tk，不创建 HTTP 服务。DesktopWindow 的唯一工作线程拥有这里的
-所有模型与搜索树；UI 只收到 deepcopy 后的快照，不能访问正在搜索的 NumPy 数组。
-这种边界避免 GUI 刷新、棋钟和模型切换同时操作 C++ 树，也便于离线验证功能。
-"""
+"""桌面串行服务：工作线程独占模型和棋局，向 UI 返回深拷贝快照。"""
 import base64
 import copy
 import json
@@ -21,11 +16,7 @@ SEARCH_PRESETS = (800, 1200, 2000, 3200, 6400, 12800, 51200)
 
 
 class DesktopService:
-    """一个窗口对应一个服务，当前会话 ID 始终由业务核心生成。
-
-settings.json 仅保存用户偏好，不保存模型本身；新模型由 ModelLibrary 扫描。
-ONNX 和配套 JSON 必须一起复制，加载时验证 SHA-256，防止拿错模型或复制未完成。
-"""
+    """管理模型、会话和偏好；ONNX 与清单成对加载并校验 SHA-256。"""
 
     def __init__(self, models, data, model=None, threads=None, competition=False):
         self.models, self.data = Path(models).resolve(), Path(data).resolve()
@@ -134,11 +125,7 @@ ONNX 和配套 JSON 必须一起复制，加载时验证 SHA-256，防止拿错�
                                   sampled_at=time.monotonic(), search_backend=self.search_backend))
 
     def perform(self, operation, **params):
-        """所有操作均由同一工作线程执行，revision 来自 UI 最后显示的局面。
-
-导入/导出保留原 GB2312 TXT 与 UTF-8 JSON 规范。JSON 带完整分析和详细评语；
-TXT 只含标准 MARK[-2..2]。此处绝不把对弈棋谱混入训练数据。
-"""
+        """串行分派操作；revision 校验局面，棋谱仅本地保存，不加入训练池。"""
         session = self.session
         revision = params.pop('revision', session.revision)
         # 边界验证也在服务层执行，不能靠隐藏 UI 阻止旧入口继续发起 Azalea 对局。
