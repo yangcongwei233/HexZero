@@ -1,4 +1,4 @@
-"""Read model manifests without importing any native inference library."""
+"""读取模型清单，无需加载原生推理库。"""
 import hashlib
 import json
 from pathlib import Path

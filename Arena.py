@@ -6,37 +6,19 @@ log = logging.getLogger(__name__)
 
 
 class Arena():
-    """
-    An Arena class where any 2 agents can be pit against each other.
-    """
+    """组织两个策略进行对弈。"""
 
     def __init__(self, player1, player2, game, display=None):
-        """
-        Input:
-            player 1,2: two functions that takes board as input, return action
-            game: Game object
-            display: a function that takes board as input and prints it (e.g.
-                     display in othello/OthelloGame). Is necessary for verbose
-                     mode.
-
-        see othello/OthelloPlayers.py for an example. See pit.py for pitting
-        human players/other baselines with each other.
-        """
+        """player1、player2 接收规范化棋盘并返回动作；game 提供规则。
+        详细输出模式需传入棋盘显示函数 display。"""
         self.player1 = player1
         self.player2 = player2
         self.game = game
         self.display = display
 
     def playGame(self, verbose=False):
-        """
-        Executes one episode of a game.
-
-        Returns:
-            either
-                winner: player who won the game (1 if player1, -1 if player2)
-            or
-                draw result returned from the game that is neither 1, -1, nor 0.
-        """
+        """执行一局，返回胜者：1 表示 player1，−1 表示 player2。
+        平局时返回规则定义的非零平局值。"""
         players = [self.player2, None, self.player1]
         curPlayer = 1
         board = self.game.getInitBoard()
@@ -64,7 +46,7 @@ class Arena():
             if not 0 <= canonical_action < len(valids) or valids[canonical_action] == 0:
                 raise ValueError(f'Action {canonical_action} is not valid')
 
-            # Notifying the opponent for the move
+            # 通知对手引擎更新搜索树。
             opponent = players[-curPlayer + 1]
             if hasattr(opponent, "notify"):
                 opponent.notify(board, canonical_action)
@@ -82,15 +64,7 @@ class Arena():
         return curPlayer * self.game.getGameEnded(board, curPlayer)
 
     def playGames(self, num, verbose=False):
-        """
-        Plays num games in which player1 starts num/2 games and player2 starts
-        num/2 games.
-
-        Returns:
-            oneWon: games won by player1
-            twoWon: games won by player2
-            draws:  games won by nobody
-        """
+        """双方各先手一半，返回各自胜局数及平局数。"""
 
         if num < 2 or num % 2:
             raise ValueError("Arena game count must be a positive even number")

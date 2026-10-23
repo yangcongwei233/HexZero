@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate the local play models with balanced seats and reproducible seeds."""
+"""以平衡先后手和可复现种子评估本地模型。"""
 import argparse
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed

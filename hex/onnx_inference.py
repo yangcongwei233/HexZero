@@ -1,4 +1,4 @@
-"""CPU inference through ONNX Runtime's native C++ kernels, without PyTorch."""
+"""通过 ONNX Runtime 原生内核执行 CPU 推理，无需 PyTorch。"""
 import os
 from pathlib import Path
 
@@ -12,7 +12,7 @@ def default_threads():
 
 
 def validate_trained_network(net):
-    """Exercise native inference before committing a newly selected model."""
+    """切换模型前先执行一次真实推理，验证其可用性。"""
     n = net.board_size
     policy, value = net.predict_batch(np.zeros((2, n, n), np.float32))
     if not (policy.shape == (2, n*n) and value.shape == (2, 1)

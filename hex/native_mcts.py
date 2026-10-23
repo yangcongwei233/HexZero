@@ -217,7 +217,7 @@ class NativeMCTS(AzaleaMCTS):
 
 
 def local_mcts(game, net, args):
-    """Auto fallback for older packages; HEX_SEARCH_BACKEND=python forces legacy."""
+    """旧包自动回退；设置 HEX_SEARCH_BACKEND=python 可强制使用兼容搜索。"""
     import logging
     import os
     backend = os.environ.get('HEX_SEARCH_BACKEND', 'auto').lower()

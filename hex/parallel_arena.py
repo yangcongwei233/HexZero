@@ -1,4 +1,4 @@
-"""Balanced evaluation with independent, reproducible games in spawn workers."""
+"""以独立、可复现的子进程对局进行平衡先后手评估。"""
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
 import multiprocessing as mp
@@ -17,7 +17,7 @@ _worker_context = None
 
 def policy_args(args, game_id, model_id):
     config = dotdict(dict(args))
-    # Seeds depend on the game/model, never the worker or completion order.
+    # 种子只取决于对局和模型，不受进程分配或完成顺序影响。
     config.seed = int(np.random.SeedSequence([
         args.get('seed', 0), args.get('iteration', 0), 0xA2E0,
         game_id, model_id,
@@ -36,7 +36,7 @@ def play_arena_game(game, previous, candidate, args, game_id):
     swapped = bool(game_id % 2)
     first, second = players[::-1] if swapped else players
     result = Arena(first, second, game).playGame()
-    # Always report from the previous model's perspective, independent of seat.
+    # 结果始终采用上一版模型视角，不受先后手交换影响。
     winner = result * (-1 if swapped else 1) if result in (-1, 1) else 0
     return game_id, int(winner)
 
@@ -80,8 +80,8 @@ def collect_results(results, num_games):
 def _run_pool(game, folder, args, device):
     games = int(args.arenaCompare)
     workers = min(int(args.get('arenaWorkers', 1)), games)
-    # Executor propagates initializer/process failures instead of repeatedly
-    # respawning a broken initializer. CUDA must use spawn, never fork.
+    # 直接传播初始化或进程异常，避免反复重启失败进程。
+    # CUDA 必须使用 spawn，不能使用 fork。
     with ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context('spawn'),
                              initializer=_initialize_worker,
                              initargs=(game.n, folder, dict(args), device)) as pool:
@@ -104,8 +104,8 @@ def run_parallel_arena(game, previous, candidate, args):
         raise ValueError('Arena device must be cpu or cuda')
     log.info('Parallel Arena: games=%s workers=%s device=%s; each model starts %s games',
              games, min(workers, games), device, games // 2)
-    # Only two inference snapshots per evaluation; no optimizer/replay copies.
-    # The directory is removed after workers exit, including on failure.
+    # 每次评估只生成两份推理快照，不复制优化器或经验池。
+    # 进程退出后清理临时目录，异常退出也会清理。
     with tempfile.TemporaryDirectory(prefix='hex-arena-') as folder:
         previous.save_checkpoint(folder, 'previous.pth.tar', include_training=False)
         candidate.save_checkpoint(folder, 'candidate.pth.tar', include_training=False)

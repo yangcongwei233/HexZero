@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""Offline CPU review of held-out losses using the original Azalea engine.
-
-No training data or models are modified. All values use the trained player's
-perspective. Screening values are heuristic; shortlisted alternatives receive
-equal, fresh successor searches. Even those estimates are not solved Hex values.
-"""
+"""使用原版 Azalea 在本地复盘独立评测集中的败局。
+不修改训练数据和模型，价值统一采用训练模型一方的视角。
+初筛仅作启发，候选后继均以相同预算的新树复查；估值不等于严格解。"""
 import argparse
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -53,14 +50,14 @@ def label(action, n=11):
 
 
 def search(board, player, simulations, seed):
-    """Every review root starts empty: no inherited visits or opponent's tree."""
+    """每个复盘根从空树开始，不继承历史访问或对手搜索树。"""
     import numpy as np
     from hex.HexLogic import has_won_bfs
     from hex.local_analysis import tree_candidates
     if has_won_bfs(board, player) or has_won_bfs(board, -player):
         raise ValueError('Search requires a nonterminal position')
     policy, env = ENGINE.policy, ENGINE.environment
-    policy.tree.reset()  # Reuse storage, not statistics; avoid 240MB reallocations.
+    policy.tree.reset()  # 复用已分配的存储，但清空统计，避免反复分配大数组。
     policy.ply = int(np.count_nonzero(board))
     policy.simulations = simulations
     policy.rng.seed(seed)
@@ -88,7 +85,7 @@ def after_move(board, player, action, simulations, seed):
         return dict(action=int(action), value=1.0, exact_terminal=True,
                     root_visits=0, pv=[int(action)])
     result = search(next_board, next_player, simulations, seed)
-    # The successor is the opponent's turn, so negate exactly once.
+    # 后继局面轮到对手行动，价值只取反一次。
     pv = result['candidates'][0]['pv'] if result['candidates'] else []
     return dict(action=int(action), value=-result['value'], exact_terminal=False,
                 root_visits=result['root_visits'],
@@ -150,8 +147,8 @@ def review(task):
             missed_immediate_win=bool(own and action not in own),
             missed_unique_block=bool(not own and len(other) == 1 and action != other[0]),
             already_lost_double_threat=bool(not own and len(other) >= 2), seed=seed))
-    # At most N most suspicious disagreements per game; not an exhaustive
-    # deep review. Tiny differences / losing moves are retained, not called errors.
+    # 每局最多深查 N 个最可疑分歧，并非穷举复盘。
+    # 微小差异和败势中的走法保留记录，不直接判为错误。
     disagreements = [r for r in rows if r['actual'] != r['azalea_action']]
     selected = sorted(disagreements, key=lambda r: (
         -int(r['missed_immediate_win'] or r['missed_unique_block']),

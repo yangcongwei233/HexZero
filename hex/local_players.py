@@ -1,4 +1,4 @@
-"""Local match adapters. The reference uses Azalea's original network and MCTS."""
+"""本地对弈适配器；参考引擎使用 Azalea 原网络及 MCTS。"""
 import copy
 from dataclasses import dataclass
 import hashlib
@@ -70,8 +70,8 @@ class ReferenceEnvironment:
 
     @property
     def state(self):
-        # Search asks for the same position several times before making a move.
-        # Include the bytes so even direct board edits cannot return stale state.
+        # 一次落子前，搜索会反复读取同一局面。
+        # 缓存键包含棋盘字节，直接编辑棋盘后也能正确失效。
         key = self.board.tobytes(), self.player, self.winner
         if key == self._state_key:
             return self._cached_state
@@ -114,7 +114,7 @@ class ReferenceEnvironment:
 
     @staticmethod
     def random_reflect(board, moves=None, rng=None):
-        # This is also a no-op in the original reference implementation.
+        # 原参考实现的此操作同样为空。
         return (board, moves) if moves is not None else board
 
 
@@ -124,8 +124,8 @@ class AzaleaReference:
         source = Path(source_dir).resolve() / 'azalea'
         if not (source / 'policy.py').is_file():
             raise FileNotFoundError(f'找不到 azalea 源码：{source}')
-        # Import only required original modules. The old package __init__ imports
-        # unrelated training/CLI dependencies and an obsolete numba.jitclass API.
+        # 仅导入所需原模块，避免旧包初始化时引入
+        # 无关训练依赖、命令行依赖及已废弃的 numba.jitclass 接口。
         namespace = '_hexzero_reference_' + hashlib.sha256(str(source).encode()).hexdigest()[:12]
         if namespace not in sys.modules:
             package = types.ModuleType(namespace)

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Recheck selected disagreements more deeply, then let Azalea play both sides.
-
-Counterfactual rollouts demonstrate what this engine can convert, not perfect
-play or what the original trained model would achieve after a suggested move.
-"""
+"""加深搜索复核指定分歧，再由 Azalea 执双方继续对局。
+替代走法的续局只说明该引擎能否取胜，不代表完美解，
+也不代表原训练模型采用该走法后的实际表现。"""
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import json

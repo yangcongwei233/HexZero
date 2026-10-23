@@ -1,4 +1,4 @@
-"""Run inside an isolated child process so native DLL failures are diagnosable."""
+"""在独立子进程内检查环境，以便诊断原生动态库崩溃。"""
 import json
 import os
 from pathlib import Path
@@ -100,8 +100,8 @@ def check_environment(root, threads, model=None):
             del net
         report['checks'].append(stage)
         stage = 'local_match_workflow'
-        # The web server creates and releases players in short-lived request
-        # threads. Test that path too, not only inference on the main thread.
+        # 网页服务会在短生命周期的请求线程中创建和释放引擎，
+        # 因此除主线程推理外，也要检查该线程路径。
         from concurrent.futures import ThreadPoolExecutor
         from hex_play_server import HexApp
         with tempfile.TemporaryDirectory(prefix='hex-startup-check-') as temporary:

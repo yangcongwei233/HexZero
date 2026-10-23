@@ -1,5 +1,5 @@
 class AverageMeter(object):
-    """From https://github.com/pytorch/examples/blob/master/imagenet/main.py"""
+    """参考实现：https://github.com/pytorch/examples/blob/master/imagenet/main.py"""
 
     def __init__(self):
         self.val = 0

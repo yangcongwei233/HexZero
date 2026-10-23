@@ -5,7 +5,7 @@ from utils import dotdict
 
 
 class ClassicPolicy:
-    """Arena adapter: per-game trees, raw-board priors and canonical actions."""
+    """评估适配器：每局独立搜索树，原始棋盘先验和规范化动作。"""
 
     def __init__(self, game, nnet, args, seed=None):
         self.game, self.nnet = game, nnet

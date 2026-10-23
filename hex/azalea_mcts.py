@@ -19,7 +19,7 @@ def arg_value(args, name, default):
 
 
 class EdgeStats(dict):
-    """Sparse public statistics with a synchronized dense view for native PUCT."""
+    """对外提供稀疏统计，并同步维护原生 PUCT 使用的密集数组。"""
     def __init__(self, size, dtype):
         super().__init__()
         self.dense = np.zeros(size, dtype=dtype)
@@ -173,7 +173,7 @@ class AzaleaMCTS:
         if not root.is_expanded():
             root_started = time.perf_counter()
             self._evaluate_and_backup([(root, [])])
-            completed = 1  # Root evaluation consumes one simulation, not a batch.
+            completed = 1  # 根评估只占一次模拟预算。
             if deadline is not None and self._batch_seconds is None:
                 self._batch_seconds = (time.perf_counter() - root_started) * batch_size
         if root.terminal:
@@ -190,8 +190,8 @@ class AzaleaMCTS:
         stop_reason = 'simulation_limit'
         while completed < sims:
             if deadline is not None:
-                # A native inference call cannot be interrupted safely midway.
-                # Reserve a conservative estimate of the next complete batch.
+                # 原生推理调用无法安全中断。
+                # 为下一完整批次预留保守耗时。
                 estimate = max(0.001, self._batch_seconds or 0.005)
                 if time.perf_counter() + estimate * 1.3 + 0.003 >= deadline:
                     stop_reason = 'time_budget'
@@ -265,7 +265,7 @@ class AzaleaMCTS:
                         node.children[action] = child
                         self._node_count += 1
                     node = child
-                # Keep every selected path; deduplicate inference, not backups.
+                # 保留每条路径；仅合并重复推理，各路径仍分别回传。
                 leaves.append((node, path))
         finally:
             for node, action in reservations:
@@ -407,7 +407,7 @@ class AzaleaStylePolicy:
         return self.mcts.update_with_move(action)
 
     def notify(self, board, action):
-        # Arena sends the mover's canonical action; a reused root has that perspective.
+        # 评估器传入落子方的规范化动作，复用根也采用该视角。
         mover = 1 if np.count_nonzero(board == 1) == np.count_nonzero(board == -1) else -1
         self.last_move = self.game.actionFromCanonical(action, mover)
         self.execute_action(action)

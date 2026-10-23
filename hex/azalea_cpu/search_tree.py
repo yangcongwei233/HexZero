@@ -1,4 +1,4 @@
-# Derived from Azalea (Apache-2.0); NumPy/ONNX inference adaptation, 2026-10-15.
+# 派生自 Azalea（Apache-2.0），于 2026-10-15 适配 NumPy/ONNX 推理。
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -13,7 +13,7 @@ from .typing import SearchableEnv, GameState
 
 DEBUG = False
 
-# 300 moves/game x 1000 evaluations/move x 30 next moves/eval
+# 容量估算：每局 300 手 × 每手 1000 次评估 × 每次 30 个后续动作。
 MAX_NODES = 10000000
 INITIAL_NODES = 4096
 
@@ -23,33 +23,20 @@ class SearchTreeFull(Exception):
 
 
 class SearchTree:
-    """
-    SearchTree stores the explored game tree and its MCTS statistics.
-    Tree nodes are board positions and edges are moves of the game.
-    Terminal leaf nodes have
-
-        `num_children[node_id] = 0`.
-
-    Unevaluated leaf nodes have
-
-        `num_children[node_id] = -1`.
-
-    * total_value is stored from current node's active player's perspective
-      (opponent of parent node's player)
-    * prior_prob is stored from parent node's player's perspective
-      (opponent of current node's player)
-    """
+    """保存已探索的局面、动作边及 MCTS 统计。
+    num_children 为 0 表示终局，为 −1 表示尚未评估。
+    total_value 采用当前节点执棋方视角；prior_prob 采用父节点执棋方视角。"""
 
     def __init__(self):
         self.num_nodes = 0
         self.root_id: int32 = 0
 
-        # tree edges
+        # 树的连接关系。
         self.parent = np.empty(INITIAL_NODES, dtype=int32)
         self.first_child = np.empty(INITIAL_NODES, dtype=int32)
         self.num_children = np.empty(INITIAL_NODES, dtype=int32)
 
-        # MCTS statistics
+        # MCTS 统计。
         self.num_visits = np.empty(INITIAL_NODES, dtype=float32)
         self.total_value = np.empty(INITIAL_NODES, dtype=float32)
         self.prior_prob = np.empty(INITIAL_NODES, dtype=float32)
@@ -57,7 +44,7 @@ class SearchTree:
         self.reset()
 
     def reserve(self, required):
-        """Grow storage without changing node IDs or the original hard limit."""
+        """按需扩容，保持节点编号和原容量上限不变。"""
         if required > MAX_NODES:
             raise SearchTreeFull('too many nodes')
         if required <= len(self.parent):
@@ -73,12 +60,11 @@ class SearchTree:
             setattr(self, name, array)
 
     def reset(self):
-        """Clear tree.
-        """
+        """清空搜索树。"""
         self.num_nodes = 1
         self.root_id = 0
 
-        # create unevaluated root node
+        # 创建尚未评估的根节点。
         self.parent[0] = -1
         self.first_child[0] = -1
         self.num_children[0] = -1
@@ -95,15 +81,10 @@ class SearchTree:
                batch_size: int = 10,
                rng: Optional[RandomState] = None, time_limit=0) \
             -> Tuple[np.ndarray, float, Dict[str, Any]]:
-        """Plan for next moves with Monte Carlo tree search (AZ flavor).
-        The search is deterministic by default, but you can provide seeded
-        random number generators for stochastic results.
-        :param temperature: Exploration temperature
-        :param exporation_noise_scale: Exploration noise scale
-        :param rng: Random number generator (by default seeded with 0)
-        :return: Next move probabilities, game value, and debug metrics
-        """
-        # avoid circular dependency
+        """执行 AlphaZero 风格的蒙特卡洛树搜索。
+        temperature 控制温度，exploration_noise_scale 控制探索噪声；
+        rng 默认使用种子 0。返回动作概率、局面价值和调试指标。"""
+        # 避免循环导入。
         from . import mcts
 
         if rng is None:
@@ -117,12 +98,12 @@ class SearchTree:
             exploration_noise_scale,
             exploration_noise_alpha,
             rng, time_limit=time_limit)
-        # play
+        # 选择动作。
         stats = self.root.move_stats
         if np.any(stats.num_visits > 0):
             move_probs = as_distribution(stats.num_visits, temperature)
         else:
-            # A storage stop can precede the first completed child simulation.
+            # 存储上限可能在首个子节点模拟完成前触发。
             weights = stats.prior_prob.astype(np.float64)
             if temperature == 0:
                 weights = (weights == weights.max()).astype(np.float64)
@@ -135,20 +116,16 @@ class SearchTree:
         return move_probs, value, metrics
 
     def move(self, move_id: int) -> None:
-        """Commit move and pick new root node.
-        Set new tree root to one of current root's child nodes.
-        Forget about ancestor and sibling nodes.
-        :param move_id: Action id of move that was made
-        """
+        """执行 move_id 指定的动作，以对应子节点为新根，丢弃祖先和兄弟分支。"""
         if not self.root.is_evaluated():
-            # step to the unknown, nothing to remember
+            # 进入尚未探索的局面，无可复用子树。
             self.reset()
             return
 
         assert self.root_id < self.num_nodes, 'root node is unevaluated'
         node = self.root.child(move_id)
         if not node.is_evaluated():
-            # step to the unknown, nothing to remember
+            # 进入尚未探索的局面，无可复用子树。
             self.reset()
         else:
             self.root_id = node.id
@@ -156,7 +133,7 @@ class SearchTree:
                 self.compact()
 
     def compact(self):
-        """Keep reachable nodes with unchanged statistics and child ordering."""
+        """只保留可达节点，保持统计和子节点顺序不变。"""
         levels = []
         level = np.array([self.root_id], dtype=np.int32)
         while len(level):
@@ -178,8 +155,8 @@ class SearchTree:
             kept = np.empty(capacity, dtype=old.dtype)
             kept[:len(order)] = old[order]
             if name in ('parent', 'first_child'):
-                # Terminal nodes may store a one-past-the-end first_child.
-                # Only nonterminal expanded nodes own a child range.
+                # 终局节点的 first_child 可能指向数组末尾之后。
+                # 只有已展开的非终局节点拥有有效子节点范围。
                 valid = child_counts > 0 if name == 'first_child' else kept[:len(order)] >= 0
                 if name == 'first_child':
                     kept[:len(order)][~valid] = -1
@@ -190,16 +167,13 @@ class SearchTree:
 
     @property
     def root(self) -> 'SearchNode':
-        """Access root node.
-        """
+        """访问根节点。"""
         return SearchNode(self, self.root_id)
 
     @contextmanager
     def search_forward(self, game: SearchableEnv) \
             -> Generator['ForwardSearchIterator', None, None]:
-        """Snapshot game state and start search.
-        :returns: Iterator for root node
-        """
+        """保存当前游戏状态，返回从根节点开始的搜索迭代器。"""
         assert self.root_id >= 0 and self.root_id < self.num_nodes, \
             'invalid root node'
         assert self.root.is_evaluated(), 'unevaluated root'
@@ -212,7 +186,7 @@ class SearchTree:
 
 
 class SearchNode:
-    """Search tree node, incl. MCTS statistics."""
+    """搜索节点及其 MCTS 统计的访问接口。"""
 
     def __init__(self, tree: SearchTree, node_id: int) -> None:
         assert node_id >= 0, 'illegal node'
@@ -225,21 +199,17 @@ class SearchNode:
 
     @property
     def id(self) -> int32:
-        """Node id (read only).
-        """
+        """读取节点编号。"""
         return self._id
 
     @property
     def parent(self) -> 'SearchNode':
-        """Get parent node in search tree.
-        """
+        """获取父节点。"""
         assert not self.is_root(), 'root has no parent'
         return SearchNode(self.tree, self.tree.parent[self.id])
 
     def child(self, move_id: int32) -> 'SearchNode':
-        """Get N'th child node.
-        :param move_id: Index of child node
-        """
+        """获取 move_id 指定的子节点。"""
         assert self.is_evaluated(), 'unevaluated node'
         assert move_id >= 0, 'illegal child'
         assert move_id < self.num_children, 'illegal child'
@@ -248,14 +218,12 @@ class SearchNode:
 
     @property
     def move_stats(self) -> 'SearchStats':
-        """Get vectorized MCTS statistics for all moves from this node.
-        :returns: MCTS stats for moves from current player's perspective
-        """
+        """返回各动作的向量化搜索统计，统一为当前执棋方视角。"""
         assert self.is_evaluated(), 'unevaluated nodes have no stats'
         first_child = self.tree.first_child[self.id]
         node_ids = slice(first_child, first_child + self.num_children)
-        # priors are already stored from parent's perspective, but
-        # values are from child nodes' own perspective, so need to be negated
+        # 先验已采用父节点视角；
+        # 价值采用子节点自身视角，需要取反。
         return SearchStats(self.tree.num_visits[node_ids],
                            -self.tree.total_value[node_ids],
                            self.tree.prior_prob[node_ids])
@@ -285,33 +253,24 @@ class SearchNode:
         return self.tree.prior_prob[self.id]
 
     def is_evaluated(self) -> bool:
-        """Test for evaluated nodes.
-        Unevaluated nodes are leaves, whose children and MCTS stats
-        are undefined.
-        """
+        """判断是否已评估；未评估叶子的子节点和搜索统计尚未初始化。"""
         return self.num_children >= 0
 
     def is_terminal(self) -> bool:
-        """Test for terminal nodes.
-        Terminal nodes are leaves which have been evaluated and
-        have no children.
-        """
+        """判断是否为终局；终局节点已评估且没有子节点。"""
         return self.num_children == 0
 
     def is_root(self) -> bool:
-        """Test for root node.
-        """
+        """判断是否为根节点。"""
         return self.id == self.tree.root_id
 
     def is_leaf(self) -> bool:
-        """Test for leaf nodes.
-        """
+        """判断是否为叶节点。"""
         return (not self.is_evaluated()) or self.is_terminal()
 
     def create_child_nodes(self, num_children: int,
                            prior_prob: np.ndarray) -> None:
-        """Create new child nodes and initialize MCTS statistics.
-        """
+        """创建子节点并初始化搜索统计。"""
         self.tree.reserve(self.tree.num_nodes + num_children)
 
         first_node_id = self.tree.num_nodes
@@ -324,7 +283,7 @@ class SearchNode:
         node_ids = slice(first_node_id, first_node_id + num_children)
         self.tree.parent[node_ids] = self.id
         self.tree.first_child[node_ids] = -1
-        self.tree.num_children[node_ids] = -1  # mark as unevaluated
+        self.tree.num_children[node_ids] = -1  # 标记为尚未评估。
         self.tree.num_visits[node_ids] = 0
         self.tree.total_value[node_ids] = 0
         self.tree.prior_prob[node_ids] = prior_prob
@@ -332,15 +291,13 @@ class SearchNode:
 
 @dataclass
 class SearchStats:
-    num_visits: np.ndarray  # dim=1, dtype=float32
-    total_value: np.ndarray  # dim=1, dtype=float32
-    prior_prob: np.ndarray  # dim=1, dtype=float32
+    num_visits: np.ndarray  # 一维 float32 数组。
+    total_value: np.ndarray  # 一维 float32 数组。
+    prior_prob: np.ndarray  # 一维 float32 数组。
 
 
 class ForwardSearchIterator:
-    """Combined game state and tree node when searching forward in game.
-    Search forward in the game and track search tree node while searching.
-    """
+    """搜索时同步推进游戏状态和树节点。"""
 
     def __init__(self, node: SearchNode, game: SearchableEnv) -> None:
         self._game = game
@@ -352,9 +309,7 @@ class ForwardSearchIterator:
                   f'nmv {len(self._game.state.legal_moves)}')
 
     def step(self, move_id: int) -> None:
-        """Move one step forward in game and tree.
-        :param move_id: Ordinal move id among legal moves in current node
-        """
+        """按当前合法动作列表中的序号 move_id，同步推进棋盘和搜索树。"""
         state = self._game.state
         assert move_id < len(state.legal_moves), \
             f"move id {move_id} out of range"
@@ -367,25 +322,22 @@ class ForwardSearchIterator:
                   f'nch {self._node.num_children} '
                   f'game {hash(str(astuple(self._game.state)))} '
                   f'nmv {len(self._game.state.legal_moves)}')
-            #self._game.io.print_state(self._game.state)
+            # 此处暂不打印棋盘状态。
 
     @property
     def state(self) -> GameState:
-        """Retrieve game state for current search position."""
+        """获取当前搜索局面的游戏状态。"""
         return self._game.state
 
     @property
     def node(self) -> SearchNode:
-        """Retrieve tree node for current search position."""
+        """获取当前搜索位置的树节点。"""
         return self._node
 
 
 def as_distribution(counts: np.ndarray, temperature: float = 1.0) \
         -> np.ndarray:
-    """Normalize count vector as a multinomial distribution.
-    Apply temperature change if requested.
-    :returns: Multinomial probability distribution
-    """
+    """按温度调整访问次数，并归一化为动作概率分布。"""
     assert all(counts >= 0)
     log_pi = np.log(counts.clip(min=1))
     log_pi[counts == 0] = -np.inf
@@ -393,7 +345,7 @@ def as_distribution(counts: np.ndarray, temperature: float = 1.0) \
         log_pi = log_pi / temperature
     else:
         log_pi[log_pi < log_pi.max()] = -np.inf
-    # avoid numerical issues
+    # 避免数值不稳定。
     log_pi = log_pi.astype(np.float64)
     log_z = np.logaddexp.reduce(log_pi)
     pi = np.exp(log_pi - log_z)
@@ -401,15 +353,7 @@ def as_distribution(counts: np.ndarray, temperature: float = 1.0) \
 
 
 def print_tree(tree: SearchTree) -> None:
-    """Pretty print search tree.
-    0
-    ├── 5 [0] move 393240 value -0.00/3 (0.43)
-    │   ├── [22] move 458757 value 0.00/0 (1.00)
-    │   └── [34] move 196636 value 0.00/0 (0.00)
-    ├── 3 [1] move 393241 value 0.51/2 (0.00)
-    │   ├── 7 [10] move 262149 value 0.69/1 (0.61)
-    │   │   ├── [39] move 327682 value 0.00/0 (0.00)
-    """
+    """以树状缩进打印节点、动作和价值统计。"""
     for line in format_tree_lines(tree):
         print(line)
 

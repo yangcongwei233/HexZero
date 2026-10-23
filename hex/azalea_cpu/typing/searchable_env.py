@@ -8,33 +8,28 @@ import numpy as np
 class SearchableEnv(Protocol):
 
     def reset(self, *args, **kwargs) -> None:
-        """Start new game
-        """
+        """开始新对局。"""
         ...
 
     def seed(self, seed: Optional[int]) -> None:
-        """Seed random number generator."""
+        """设置随机种子。"""
         ...
 
     def step(self, action: int) -> None:
-        """Make one move in game.
-        """
+        """在游戏中执行一步。"""
         ...
 
     @property
     def state(self) -> 'GameState':
-        """Get current game state.
-        """
+        """获取当前游戏状态。"""
         ...
 
     def snapshot(self) -> None:
-        """Store snapshot of current game state.
-        """
+        """保存当前状态快照。"""
         ...
 
     def restore(self) -> None:
-        """Restore game state from previous snapshot.
-        """
+        """从快照恢复游戏状态。"""
         ...
 
 

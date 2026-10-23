@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""Use the immutable trained checkpoint to review Azalea's losses locally.
-
-All saved Q values use the trained side's perspective. Thus Azalea's best
-defense MINIMIZES Q. Original live scores, fresh searches and exact rules are
-kept separate. Evaluation records never become training data.
-"""
+"""使用固定训练断点，在本地复盘 Azalea 的败局。
+保存的 Q 值统一采用训练模型视角，因此 Azalea 的最佳防守使 Q 最小。
+分别记录实战估值、新树搜索和规则证明；评测棋谱不自动进入训练集。"""
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -66,7 +63,7 @@ def reset_engine(kind, board, player, simulations, seed):
 
 
 def search(board, player, trained_side, simulations, seed, kind='trained'):
-    """Fresh tree, fixed perspective, original engine-specific batch/cpuct."""
+    """使用新树和固定价值视角，保留各引擎原有批次及探索系数。"""
     import numpy as np
     from hex.HexLogic import has_won_bfs
     from hex.local_analysis import tree_candidates
@@ -83,7 +80,7 @@ def search(board, player, trained_side, simulations, seed, kind='trained'):
                 node['value'] *= sign
     if kind == 'trained':
         visits = TRAINED.policy.mcts.tree.root.N
-        assert visits == simulations - 1  # One evaluation is spent on the root.
+        assert visits == simulations - 1  # 根节点评估占用一次预算。
     else:
         visits = int(REFERENCE.policy.tree.root.num_visits)
         assert np.array_equal(REFERENCE.environment.board, board)
@@ -168,7 +165,7 @@ def review(task):
         actions = {row['actual'], row['suggested'], deep['action']}
         actions.update(c['action'] for c in deep['candidates'])
         branches = [after_move(board, mover, a, side, settings['deep_simulations'], seed) for a in sorted(actions)]
-        branches.sort(key=lambda b: (b['value'], b['action']))  # Opponent minimizes OUR score.
+        branches.sort(key=lambda b: (b['value'], b['action']))  # 对手选择使我方评分最低的走法。
         actual = next(b for b in branches if b['action'] == row['actual'])
         reply_board = positions[row['ply']]
         reply = search(reply_board, side, side, settings['deep_simulations'], seed)
@@ -177,9 +174,9 @@ def review(task):
                            branches=branches, defense=branches[0]['action'], defense_q=branches[0]['value'],
                            actual_q=actual['value'], gain=actual['value'] - branches[0]['value'],
                            trained_reply_suggestion=reply['action'], trained_reply_value=live_reply['value'])
-    # Confirm possible midgame disadvantage on identical boards with both
-    # engines. Select at most two low positions, one from replay and one from
-    # live scores; these are samples, not exhaustive deep searches of all plies.
+    # 在相同棋盘上用双方引擎核实可能的中盘劣势。
+    # 最多选两个低估值局面，分别来自回放和实战估值；
+    # 这些仅是抽样，不代表逐手穷举深搜。
     timeline = [(r['before_q'], r['ply']) for r in rows if r['ply'] >= 11]
     timeline += [(r['after_q'], r['ply'] + 1) for r in rows if r['ply'] + 1 >= 11]
     own_live = [m for m in moves if m['actor'] == 'trained' and 'value' in m]

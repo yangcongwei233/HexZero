@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export FP32 local-play networks; validate before publishing model/manifest pairs."""
+"""导出本地对弈网络，校验后成对发布模型及清单。"""
 import argparse
 import hashlib
 import json
@@ -107,7 +107,7 @@ def export(model, path, info):
                                   onnxruntime=ort.__version__, opset=17), validation=validation)
         manifest = Path(folder) / (path.name + '.json')
         manifest.write_text(json.dumps(info, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
-        del session  # Release the model before replacement, including on Windows.
+        del session  # 替换文件前释放模型，也适用于 Windows。
         temporary.replace(path)
         manifest.replace(path.with_suffix(path.suffix + '.json'))
     print(json.dumps(dict(model=str(path), bytes=path.stat().st_size, validation='passed')), flush=True)

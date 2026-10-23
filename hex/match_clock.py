@@ -1,4 +1,4 @@
-"""Monotonic per-side match clock; independent of browser timers and CPU clocks."""
+"""双方独立的单调比赛计时，不依赖浏览器计时器或处理器时钟。"""
 import time
 
 
@@ -33,7 +33,7 @@ class MatchClock:
         return next((side for side in (1, -1) if self.minutes and self.remaining[side] <= 0), None)
 
     def budget(self, side, empty_cells, move_limit=0):
-        """Reserve 30s globally and allocate across all possibly remaining turns."""
+        """全局预留 30 秒，再按可能的剩余回合分配用时。"""
         self.settle()
         if not self.minutes:
             return move_limit or 0

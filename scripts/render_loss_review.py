@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make a self-contained local Hex loss-review viewer and a flat CSV table."""
+"""生成可独立查看的本地败局复盘页面及 CSV 汇总表。"""
 import argparse
 import csv
 import hashlib

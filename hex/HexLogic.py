@@ -24,7 +24,7 @@ def coord_to_action(row, col, board_size):
 
 
 def has_connected_bfs(board, stone, axis):
-    """Simple Hex connectivity check used as the reference implementation."""
+    """作为基准实现的 Hex 连通性检查。"""
     board = np.asarray(board)
     n = board.shape[0]
     seen = np.zeros_like(board, dtype=bool)
@@ -59,7 +59,7 @@ def has_connected_bfs(board, stone, axis):
 
 
 def has_won_bfs(board, player):
-    """Hex win check with the normal game axes."""
+    """按标准连接方向检查 Hex 胜负。"""
     if player == 1:
         return has_connected_bfs(board, player, TOP_BOTTOM)
     if player == -1:
@@ -68,14 +68,9 @@ def has_won_bfs(board, player):
 
 
 def build_regions(board, stone, axis):
-    """
-    Build padded connected-component labels for one player.
-
-    Label 1 is the player's first virtual edge, label 2 is the opposite virtual
-    edge. Stones merge adjacent labels using the six Hex neighbors. This is a
-    stateless variant of the minihex regions/flood-fill idea, so MCTS can copy
-    and hash boards without carrying mutable region caches.
-    """
+    """为一方生成带虚拟边界的连通分量标签。
+    标签 1、2 分别表示两条目标边，棋子按六邻接关系合并标签。
+    参考 minihex 的区域填充思路，但不保留可变区域缓存，便于搜索复制和哈希棋盘。"""
     board = np.asarray(board)
     n = board.shape[0]
     regions = np.zeros((n + 2, n + 2), dtype=np.int32)

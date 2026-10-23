@@ -20,7 +20,7 @@ def make_handler(app):
             super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
         def end_headers(self):
-            # UI assets and the Python backend must always belong to the same version.
+            # 界面资源和 Python 后端必须来自同一版本。
             self.send_header('Cache-Control', 'no-store')
             super().end_headers()
 
@@ -58,7 +58,7 @@ def make_handler(app):
                                               download=url.path == '/api/export')
                 if url.path not in ('/', '/index.html', '/app.js', '/styles.css'):
                     return self.send_error(404)
-                # Do not revalidate an old asset cached before no-store was added.
+                # 避免继续使用添加禁止缓存策略之前保存的旧资源。
                 if 'If-Modified-Since' in self.headers:
                     del self.headers['If-Modified-Since']
                 return super().do_GET()

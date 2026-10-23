@@ -20,12 +20,12 @@ def _edges(node, board, player, game, kind):
         return edges
     if not node.is_evaluated() or node.is_terminal():
         return []
-    # Original Azalea child indices follow the raw environment's legal-move
-    # ordering, even when its network input is normalized for the second player.
+    # Azalea 子节点编号遵循原始环境的合法动作顺序，
+    # 即使后手的网络输入经过规范化，也不能改用网络坐标。
     legal = np.flatnonzero(board.ravel() == 0)
     if node.num_children != len(legal):
         raise RuntimeError('Azalea 分析树与合法落点不同步')
-    stats = node.move_stats  # Already negates child values to the mover's side.
+    stats = node.move_stats  # 此接口已将子节点价值取反为落子方视角。
     return [dict(action=int(action), visits=int(stats.num_visits[i]),
                  value=float(stats.total_value[i] / stats.num_visits[i]) if stats.num_visits[i] else None,
                  prior=float(stats.prior_prob[i]), child=node.child(i))
@@ -39,7 +39,7 @@ def _rank(edges):
 
 
 def tree_candidates(engine, board, player, game, kind, limit=3, depth=6):
-    """Extract candidates after search, without stepping either live engine."""
+    """搜索后提取候选，不推进正在对弈的引擎。"""
     root = engine.policy.mcts.tree.root if kind == 'trained' else engine.policy.tree.root
     candidates = []
     for first in _rank(_edges(root, board, player, game, kind))[:limit]:

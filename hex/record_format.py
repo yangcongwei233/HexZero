@@ -1,4 +1,4 @@
-"""Competition HEX TXT: GB2312, bottom-left A1, red first/top-bottom."""
+"""比赛棋谱 TXT：GB2312 编码，A1 位于左下，红方先手连接上下。"""
 import json
 import math
 import re
@@ -76,7 +76,7 @@ def validate_moves(moves, meta):
             raise ValueError('单手详细评语最多 4000 字')
         if comment:
             move['comment'] = comment
-        # Detailed analysis remains JSON data; never execute imported content.
+        # 详细分析仅作为 JSON 数据处理，绝不执行导入内容。
         if isinstance(item.get('review'), dict):
             move['review'] = item['review']
         normalized.append(move)

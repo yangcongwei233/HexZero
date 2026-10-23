@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build model-independent, local central openings distant from recorded training states."""
+"""生成远离已记录训练局面的中央局部开局，不依赖模型判断。"""
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
@@ -52,7 +52,7 @@ class PositionIndex:
 
 
 def sample_opening(rng, plies):
-    # Common central starts, nearby replies, and local continuations for BOTH colors.
+    # 为双方生成常见中央开局、邻近应手和局部后续。
     first = int(rng.choice([r*11+c for r in range(3,8) for c in range(3,8)]))
     second = int(rng.choice([a for a in range(121) if 1<=distance(a,first)<=2
                             and 1<=a//11<=9 and 1<=a%11<=9]))
@@ -92,7 +92,7 @@ def main():
         teacher_index=PositionIndex(teachers,plies)
         threshold=plies//2
         pool=[];keys=set();attempts=0
-        # Select from a fixed-size pool, using position distances alone, never model evaluations.
+        # 从固定候选池按局面距离选择，不使用模型估值。
         for _ in range(2400):
             attempts+=1
             moves=sample_opening(rng,plies)
@@ -108,14 +108,14 @@ def main():
                 nearest_selfplay_position=near_self,nearest_teacher_position=near_teacher,
                 first_two_seen_in_selfplay=first2[position_key(moves[:2])],
                 first_two_seen_in_teacher=position_key(moves[:2]) in teacher2))
-        # Stable shuffle breaks ties reproducibly without favoring coordinates or any model.
+        # 稳定洗牌消除并列偏好，保持可复现且不偏向坐标或模型。
         rng.shuffle(pool)
         pool.sort(key=lambda p:(p['training_distance'],p['teacher_distance']),reverse=True)
         taken=[];first_counts=Counter();pair_counts=Counter()
         for item in pool:
             first=item['actions'][0];pair=position_key(item['actions'][:2])
             if first_counts[first]>=1 or pair_counts[pair]>=1:continue
-            # Avoid selecting almost the same test position more than once in this depth stratum.
+            # 同一步数层中，避免重复选择几乎相同的测试局面。
             if taken and min(plies-max(len(set(item['actions'][::2])&set(v[0]))+
                                       len(set(item['actions'][1::2])&set(v[1]))
                                       for v in (position_key(other['actions']),
@@ -132,7 +132,7 @@ def main():
             for action in item['actions']:
                 board,player=game.getNextState(board,player,action)
                 assert not game.getGameEnded(board,player)
-            # Independent set calculation checks the reported nearest-position distance.
+            # 用独立集合计算核对所报告的最近局面距离。
             for name,near in [('training',item['nearest_selfplay_position']),('teacher',item['nearest_teacher_position'])]:
                 shared=len(set(item['actions'][::2])&set(near[0]))+len(set(item['actions'][1::2])&set(near[1]))
                 assert plies-shared==item[name+'_distance']

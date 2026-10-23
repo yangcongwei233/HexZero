@@ -128,8 +128,8 @@ class NNetWrapper(NeuralNet):
                 teacher_seen += teacher_count
                 total_seen += batch_size
                 if teacher_fraction:
-                    # Reduce each source independently; overall loss keeps the
-                    # existing batch mean and optimizer-step budget.
+                    # 分别统计各来源损失；总损失仍按原批次均值计算，
+                    # 不增加优化器更新次数。
                     per_policy = -(target_pis * out_pi).sum(dim=1).detach()
                     per_value = (target_vs_flat - out_v_flat).square().detach()
                     split = batch_size - teacher_count
@@ -303,7 +303,7 @@ class NNetWrapper(NeuralNet):
         state = checkpoint['state_dict']
         config = checkpoint.get('network_config')
         if config is None:
-            # Compatibility with weight-only HexZero checkpoints.
+            # 兼容仅含权重的旧 HexZero 断点。
             config = {
                 'num_channels': int(state['input_conv.weight'].shape[0]),
                 'policy_channels': int(state['policy_conv.weight'].shape[0]),

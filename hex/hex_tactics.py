@@ -4,7 +4,7 @@ from .HexLogic import action_to_coord, coord_to_action, has_won_fast
 
 
 HEX_NEIGHBORS = ((-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0))
-# Circular order matters: adjacent directions are the two carriers of a bridge.
+# 方向必须按环形排列；相邻方向对应棋桥的两个连接点。
 CIRCULAR_NEIGHBORS = ((-1, 0), (-1, 1), (0, 1), (1, 0), (1, -1), (0, -1))
 BRIDGE_PAIRS = tuple((CIRCULAR_NEIGHBORS[d], CIRCULAR_NEIGHBORS[(d + 1) % 6]) for d in range(6))
 
@@ -87,7 +87,7 @@ def _friendly_neighbors(board, row, col, player):
 
 
 def count_bridges(board, row, col, player):
-    """Bridges made by a hypothetical stone with two empty common neighbors."""
+    """枚举假设落子后形成的棋桥，要求两个共同邻点均为空。"""
     n = board.shape[0]
     count = 0
     for a, b in BRIDGE_PAIRS:

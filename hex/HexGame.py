@@ -20,12 +20,8 @@ from .fast_hex import get_valid_moves_fast
 
 
 class HexGame(Game):
-    """
-    Hex implementation for alpha-zero-general.
-
-    Board values are 0 for empty, 1 for the top-bottom player, and -1 for the
-    left-right player. Actions are row * n + col.
-    """
+    """适配 alpha-zero-general 的 Hex 规则。
+    空格为 0，上下连接方为 1，左右连接方为 −1；动作为行号乘边长再加列号。"""
 
     def __init__(self, n=5, use_fast_win_check=True, win_check_mode=None):
         self.n = n
@@ -118,7 +114,7 @@ class HexGame(Game):
 
         for new_board, new_pi in (
             (board, pi_board),
-            # Single-axis reflections change the six-neighbor Hex graph.
+            # 单轴镜像会改变 Hex 的六邻接关系，不能用于对称增强。
             (np.rot90(board, 2), np.rot90(pi_board, 2)),
         ):
             symmetries.append((np.copy(new_board), list(new_pi.ravel())))

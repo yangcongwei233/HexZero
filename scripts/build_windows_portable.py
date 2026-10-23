@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an offline Windows x64 bundle from downloaded CPython and Windows wheels."""
+"""用下载的 CPython 和 Windows 依赖构建离线 x64 软件包。"""
 import argparse
 from datetime import datetime, timezone
 from email.parser import Parser
@@ -79,7 +79,7 @@ def main():
     for path in msvc.iterdir():
         if path.suffix in ('.dll', '.rtf'):
             shutil.copy2(path, runtime / path.name)
-    # Include stdlib sources for libraries that inspect Python source at runtime.
+    # 保留标准库源码，供运行时需要检查源码的依赖使用。
     source = cache / 'Python-3.11.9.tar.xz'
     with tarfile.open(source) as archive:
         for member in archive.getmembers():
@@ -99,8 +99,8 @@ def main():
                 path = PurePosixPath(name)
                 if name.endswith('/'):
                     continue
-                # Optional TBB affinity plugins require an unrelated hwloc
-                # installation. Hex does not use TBB affinity or parallel Numba.
+                # 可选的 TBB 亲和性插件另需 hwloc，
+                # 本程序未使用这些插件或并行 Numba。
                 if wheel.name.startswith('tbb-') and path.name.startswith('tbbbind') and path.suffix == '.dll':
                     continue
                 if path.is_absolute() or '..' in path.parts:
@@ -120,8 +120,8 @@ def main():
                 target = target_root / Path(relative)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(archive.read(name))
-    # Intel's Windows runtime wheels place DLLs in Library/bin. Make them
-    # discoverable by Python extension modules without system PATH changes.
+    # Intel 的 Windows 运行库将动态库放在 Library/bin，
+    # 显式加入查找路径，无需修改系统 PATH。
     for path in (runtime / 'Library/bin').glob('*.dll'):
         shutil.copy2(path, runtime / path.name)
     (runtime / 'python311._pth').write_text('Lib\npython311.zip\n.\nLib/site-packages\n../app\nimport site\n')
@@ -186,7 +186,7 @@ def main():
     (output / 'build-manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
     if args.validation:
         shutil.copy2(args.validation, output / 'validation-report.json')
-    # A checksum inventory makes copying to another computer verifiable.
+    # 生成校验清单，便于验证跨机器复制是否完整。
     files = sorted(p for p in output.rglob('*') if p.is_file())
     (output / 'SHA256SUMS.txt').write_text(''.join(f'{sha(p)}  {p.relative_to(output).as_posix()}\n' for p in files))
     zip_path = output.with_suffix('.zip')

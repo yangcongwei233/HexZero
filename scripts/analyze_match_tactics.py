@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check recorded Hex games for exact one-move wins and two-threat proofs."""
+"""检查棋谱中的一步获胜和双威胁必胜局面。"""
 import argparse
 from collections import Counter
 import json
@@ -31,9 +31,9 @@ def immediate_wins(board, side, verify=False):
 
 
 def winning_forks(board, side, opponent_wins):
-    # Two different winning cells cannot both be occupied in the opponent's
-    # single reply. This proves a win on our next turn, provided they cannot
-    # immediately win first. With one opponent threat we must occupy that cell.
+    # 对手一步无法同时占据两个不同的制胜点。
+    # 若对手不能立即获胜，则可证明我方下一步必胜。
+    # 对手仅有一个立即获胜点时，我方必须先占据它。
     if len(opponent_wins) >= 2:
         return []
     candidates = opponent_wins or np.flatnonzero(board.ravel() == 0)
@@ -43,7 +43,7 @@ def winning_forks(board, side, opponent_wins):
         threats = immediate_wins(board, side)
         if len(threats) >= 2:
             assert not immediate_wins(board, -side)
-            # Verify each proof cell against the separate BFS implementation.
+            # 使用独立 BFS 判胜实现，验证每个证明点。
             assert threats == immediate_wins(board, side, verify=True)
             found.append(dict(action=int(action), winning_cells=threats))
         board.ravel()[action] = 0

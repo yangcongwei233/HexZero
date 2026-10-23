@@ -40,7 +40,7 @@ def atomic_pickle(path, payload):
 
 
 def atomic_alias(source, target):
-    """Same-directory hard link: publish an alias without rewriting large files."""
+    """用同目录硬链接发布别名，避免重写大文件。"""
     fd, temporary = tempfile.mkstemp(dir=Path(target).parent, prefix='.alias-')
     os.close(fd)
     os.unlink(temporary)
@@ -53,7 +53,7 @@ def atomic_alias(source, target):
 
 
 class Coach:
-    """Self-play, replay, network updates and balanced Arena evaluation."""
+    """串联自博弈、经验回放、网络更新和平衡先后手评估。"""
 
     def __init__(self, game, nnet, args):
         self.game, self.nnet, self.args = game, nnet, args
@@ -172,7 +172,7 @@ class Coach:
             self._scalar('replay/samples', len(examples), iteration)
             self._scalar('replay/mean_value_target', sum(float(e[2]) for e in examples) / len(examples), iteration)
 
-            # Keep rollback state in memory; no per-iteration training checkpoint writes.
+            # 回滚状态留在内存，避免每轮写入训练断点。
             previous = self.nnet.get_training_state()
             self.pnet.load_training_state(previous)
             train_start = time.perf_counter()
@@ -206,7 +206,7 @@ class Coach:
             if not accepted:
                 attempted_steps = self.nnet.train_step
                 self.nnet.load_training_state(previous)
-                self.nnet.train_step = attempted_steps  # Monotonic logging across rejected updates.
+                self.nnet.train_step = attempted_steps  # 更新被拒绝时，日志步数仍保持递增。
             self.nnet.checkpoint_metadata.update(iteration=iteration, seed=arg_value(self.args, 'seed', 0), run_config=dict(self.args))
             if iteration % interval == 0 or iteration == end - 1:
                 self._save_snapshot(iteration)
@@ -245,7 +245,7 @@ class Coach:
             for history in self.trainExamplesHistory:
                 self.replayBuffer.extend(history)
             self.trainExamplesHistory = self.replayBuffer.to_history()
-        self.skipFirstSelfPlay = False  # Snapshots are saved after an iteration completes.
+        self.skipFirstSelfPlay = False  # 一轮完整结束后再保存快照。
 
     def _save_snapshot(self, iteration):
         folder = Path(self.args.checkpoint)
@@ -262,7 +262,7 @@ class Coach:
         keep = arg_value(self.args, 'keepCheckpoints', 3)
         manifest = {'iteration': iteration, 'model': model, 'examples': examples,
                     'managed_snapshots': managed[-keep:]}
-        # Only publish a complete pair. Aliases don't duplicate the replay buffer on disk.
+        # 只发布完整快照对；别名不重复占用经验池空间。
         for alias in ('latest.pth.tar', 'best.pth.tar'):
             atomic_alias(folder / model, folder / alias)
             atomic_alias(folder / examples, folder / (alias + '.examples'))
@@ -274,7 +274,7 @@ class Coach:
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
-        # Never sweep old experiment files: only prune snapshots in our manifest.
+        # 仅清理清单中登记的快照，保留其他实验文件。
         for old in managed[:-keep]:
             if Path(old).name != old or not old.startswith('checkpoint_') or not old.endswith('.pth.tar'):
                 continue

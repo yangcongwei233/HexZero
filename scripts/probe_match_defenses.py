@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay selected prefixes and test counterfactual defenses with local models."""
+"""回放指定棋谱前缀，用本地模型检验替代防守走法。"""
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
@@ -41,8 +41,8 @@ def probe(task):
             session.step(session.revision)
         expected = 1 if has_won_bfs(session.board, 1) else -1 if has_won_bfs(session.board, -1) else None
         assert session.winner == expected
-    # The web record has a common per-side budget. Explicitly annotate unequal
-    # budgets here so these diagnostic games cannot be mistaken for fair matches.
+    # 网页棋谱通常采用双方相同预算；此处显式标出不等预算，
+    # 避免将诊断对局误当作公平比赛。
     record = session.record()
     record['diagnostic'] = dict(task, blue_simulations=800, red_simulations=red_sims,
                                replay_search_state='Fresh trees; prefix moves observed without searches'

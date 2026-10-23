@@ -176,8 +176,8 @@ class HexSession:
         next_board, next_player = self.game.getNextState(self.board, player, int(action))
         for engine in self.engines.values():
             engine.observe(self.board, player, int(action))
-        # Advancing/compacting a large tree can also take time. Do not commit a
-        # move that exhausted the clock during this work.
+        # 推进和压缩大树也会耗时；
+        # 若此时已超时，则不能提交落子。
         if self.clock.active is not None:
             self.refresh_clock()
             if self.winner:
@@ -243,8 +243,8 @@ class HexSession:
         if self.analysis and self.analysis['revision'] == revision and self.analysis['engine'] == kind:
             return
         started = time.perf_counter()
-        # Separate RNG and search tree: inspecting a position must not give the
-        # playing engine extra simulations or alter its next tie-breaking draw.
+        # 分析使用独立随机数和搜索树，避免额外搜索
+        # 或并列候选抽样影响正在进行的对局。
         engine = (TrainedPlayer(self.game, self.app.net, self.simulations, self.seed)
                   if kind == 'trained' else
                   self.app.reference.player(self.simulations, (self.seed + 1) % (2 ** 32)))
@@ -252,7 +252,7 @@ class HexSession:
         for move in self.moves:
             engine.observe(board, player, move['action'])
             board, player = self.game.getNextState(board, player, move['action'])
-        # Analysis observes the same per-move cap, but never borrows live-tree visits.
+        # 分析遵守相同的单步上限，但不继承实战树的访问次数。
         limit = self.clock.budget(self.player, int((self.board == 0).sum()), self.move_time_ms / 1000)
         _, info = engine.choose(self.board, self.player, time_limit=limit)
         candidates = tree_candidates(engine, self.board, self.player, self.game, kind)
@@ -297,11 +297,11 @@ class HexSession:
         clock_snapshot = (retained[-1].get('clockAfter') if retained else None)
         self.clock.pause()
         self.winner_reason = None
-        # Returning to the manually placed prefix allows editing either color
-        # without an automatic model response immediately replacing the undo.
+        # 退回手动开局区间后，允许继续编辑任一方，
+        # 避免自动应手立即覆盖悔棋结果。
         self.opening_setup = self.opening_setup or (self.opening_length > 0 and keep <= self.opening_length)
         self.opening_length = 0
-        # Search statistics and reference environment must follow the restored board.
+        # 搜索统计和参考环境必须随棋盘一起恢复。
         self.engines = self.make_engines()
         self.board, self.player = self.game.getInitBoard(), 1
         self.moves, self.winner, self.saved_path = [], None, None
@@ -339,7 +339,7 @@ class HexSession:
         if revision != self.revision:
             raise ValueError('棋局已更新，请刷新后重试')
         checked = metadata_checked(metadata)
-        # Validate against the whole record, even while displaying an early ply.
+        # 即使回放停在前段，也应校验整份棋谱。
         if self.game.n == 11:
             from hex.record_format import validate_moves
             _, winner, warnings = validate_moves(self.record_moves if self.replay_mode else self.moves, checked)
@@ -450,7 +450,7 @@ class HexApp:
         self.game = HexGame(int(size[0]))
         if backend == 'torch' and self.checkpoint is not None:
             self.net = NNetWrapper(self.game, config={'cuda': device == 'cuda'})
-            # Playing needs neither optimizer nor training RNG state.
+            # 对弈无需优化器或训练随机数状态。
             self.net.load_training_state({k: v for k, v in state.items()
                                           if k not in ('optimizer_state_dict', 'rng_state')})
         self.save_dir = Path(save_dir).resolve()
@@ -508,7 +508,7 @@ class HexApp:
             validate_trained_network(net)
         except Exception as exc:
             raise ValueError(f'模型试运行失败，未切换：{exc}') from exc
-        # Save with the original model metadata before replacing any app state.
+        # 替换应用状态前，先按原模型元数据保存棋局。
         for session in self.sessions.values():
             session.save()
         previous = self.checkpoint, self.net, self.metadata
@@ -532,8 +532,8 @@ class HexApp:
             return self.config()
         if threads != self.threads:
             from hex.onnx_inference import OnnxNetwork
-            # Construct both sessions before committing. Live players share these
-            # network objects, so their existing trees and game state stay valid.
+            # 先构建双方会话再切换；对弈者共享网络对象，
+            # 因此已有搜索树和棋局状态继续有效。
             replacements = [(self.net, OnnxNetwork(self.checkpoint, 'trained', threads))]
             if self.reference:
                 replacements.append((self.reference.prototype.net,
@@ -592,7 +592,7 @@ class HexApp:
         for previous in self.sessions.values():
             previous.refresh_clock()
             previous.clock.pause()
-        # Bound retained sessions; search trees grow with the explored positions.
+        # 限制保留的会话数，避免搜索树随局面增长而累积占用内存。
         while len(self.sessions) >= 2:
             self.sessions.pop(next(iter(self.sessions)))
         self.sessions[session.id] = session

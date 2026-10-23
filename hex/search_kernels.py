@@ -1,4 +1,4 @@
-"""Native numeric loops; preserve search order, budgets and IEEE arithmetic."""
+"""编译数值热点，保持搜索顺序、预算和 IEEE 浮点运算语义。"""
 import math
 
 try:

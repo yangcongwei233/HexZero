@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download only inference weights from the latest completed server checkpoint."""
+"""从服务器最新完整断点中仅下载推理权重。"""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    # Machine-specific SSH settings stay outside the public source repository.
+    # 机器专属 SSH 设置保存在公开源码仓库之外。
     config_path = ROOT / 'local_config/server.json'
     try:
         config = json.loads(config_path.read_text()) if config_path.exists() else {}
@@ -33,8 +33,8 @@ def main():
     parser.add_argument('--require-teacher', action='store_true',
                         help='Refuse to export a checkpoint without configured teacher mixing')
     args = parser.parse_args()
-    # Read the completed snapshot selected by the trainer's atomic manifest.
-    # Transfer through stdout: no extra checkpoint or replay written remotely.
+    # 读取训练器原子清单指定的完整快照。
+    # 通过标准输出传输，远端不另写断点或经验池。
     script = '''import hashlib,io,json,sys,torch
 from pathlib import Path
 folder=Path(sys.argv[1])/'checkpoints'

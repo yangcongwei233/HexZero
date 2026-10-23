@@ -164,7 +164,7 @@ def _split_work(total_games, num_workers, games_per_worker):
 
 
 def run_parallel_self_play(game, nnet, args, checkpoint_file='_parallel_selfplay.pth.tar'):
-    # Workers still load independently; the inference-only handoff is temporary.
+    # 各任务独立加载模型；临时交接文件仅含推理数据。
     with tempfile.TemporaryDirectory(prefix='hex-selfplay-') as folder:
         nnet.save_checkpoint(folder=folder, filename=checkpoint_file, include_training=False)
         return _run_workers(game, args, folder, checkpoint_file)
@@ -214,7 +214,7 @@ def _run_workers(game, args, checkpoint_folder, checkpoint_file):
                         format_value_stats(result['value_stats']),
                     )
                 pending[result['worker_id']] = result['examples']
-                # Completion stays asynchronous; replay ordering stays reproducible.
+                # 任务异步完成，但经验入池顺序保持可复现。
                 while next_task in pending:
                     examples.extend(pending.pop(next_task))
                     next_task += 1

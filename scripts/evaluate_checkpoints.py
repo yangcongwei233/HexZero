@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two HexZero checkpoints on identical colored openings with swapped seats."""
+"""使用相同带颜色开局并交换先后手，比较两个 HexZero 断点。"""
 import argparse
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed

@@ -1,4 +1,4 @@
-"""Build portable x86-64 search; no fast-math, AVX requirement or runtime compiler."""
+"""构建通用 x86-64 搜索库，保持严格浮点语义，无需 AVX 或运行时编译器。"""
 import argparse
 import hashlib
 import json

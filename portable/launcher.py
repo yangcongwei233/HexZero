@@ -1,4 +1,4 @@
-"""Offline launcher for the portable Windows Hex test bench."""
+"""Windows 便携式 Hex 对弈程序的离线启动器。"""
 import argparse
 import json
 import logging
@@ -102,7 +102,7 @@ def startup_check(threads, model=None):
         hint = hints.get(code, 'Python 或 C++ 推理环境检查失败')
         if result.returncode == -4:
             hint = 'CPU 不支持运行库使用的指令'
-        # Preserve a native crash even if the child cannot write its JSON report.
+        # 即使子进程来不及写 JSON 报告，也保留原生崩溃信息。
         if result.returncode != 1 or not report_path.is_file():
             report_path.write_text(json.dumps(
                 dict(status='failed', failed_stage='native_process', returncode=result.returncode,
@@ -118,7 +118,7 @@ def startup_check(threads, model=None):
 
 
 def supervise_server(args, model, threads):
-    """Keep native process exits visible even when no Python exception is raised."""
+    """即使未抛出 Python 异常，也显示原生进程退出信息。"""
     command = [sys.executable, '-u', '-X', 'utf8', '-X', 'faulthandler', str(Path(__file__).resolve()),
                '--server-worker', '--model', model, '--port', str(args.port)]
     if threads is not None:
@@ -171,8 +171,8 @@ def load_app(model, save_dir, simulations=None, threads=None):
                   backend='onnx', threads=threads)
     app.enable_model_library(ROOT / 'models', save_model)
     app.on_threads_changed = save_threads
-    # Compile/load native signatures and warm the real search batch before the
-    # first timed move. This tree is discarded and never enters a game.
+    # 首个计时动作前，加载或编译原生内核并预热真实搜索批次。
+    # 预热树随后丢弃，不参与正式对局。
     from hex.local_players import TrainedPlayer
     TrainedPlayer(app.game, app.net, 65, 0).choose(app.game.getInitBoard(), 1)
     return app

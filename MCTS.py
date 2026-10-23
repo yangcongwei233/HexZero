@@ -16,32 +16,24 @@ def arg_value(args, name, default):
 
 
 class MCTS():
-    """
-    This class handles the MCTS tree.
-    """
+    """维护逐次模拟的 MCTS 搜索树。"""
 
     def __init__(self, game, nnet, args):
         self.game = game
         self.nnet = nnet
         self.args = args
-        self.Qsa = {}  # stores Q values for s,a (as defined in the paper)
-        self.Nsa = {}  # stores #times edge s,a was visited
-        self.Ns = {}  # stores #times board s was visited
-        self.Ps = {}  # stores initial policy (returned by neural net)
+        self.Qsa = {}  # 状态与动作对应的平均价值 Q。
+        self.Nsa = {}  # 状态与动作对应的边访问次数。
+        self.Ns = {}  # 局面访问次数。
+        self.Ps = {}  # 网络输出的初始策略。
 
-        self.Es = {}  # stores game.getGameEnded ended for board s
-        self.Vs = {}  # stores game.getValidMoves for board s
+        self.Es = {}  # 缓存局面的终局结果。
+        self.Vs = {}  # 缓存局面的合法动作。
         self.rng = np.random.default_rng(arg_value(args, 'seed', None))
 
     def getActionProb(self, canonicalBoard, temp=1):
-        """
-        This function performs numMCTSSims simulations of MCTS starting from
-        canonicalBoard.
-
-        Returns:
-            probs: a policy vector where the probability of the ith action is
-                   proportional to Nsa[(s,a)]**(1./temp)
-        """
+        """从规范化棋盘执行指定次数的模拟。
+        返回策略分布，动作概率正比于访问次数的 1/temp 次方。"""
         if self.args.numMCTSSims < 1 or temp < 0:
             raise ValueError('numMCTSSims must be positive and temperature nonnegative')
         if self.game.getGameEnded(canonicalBoard, 1):
@@ -69,35 +61,20 @@ class MCTS():
         return probs
 
     def search(self, canonicalBoard):
-        """
-        This function performs one iteration of MCTS. It is recursively called
-        till a leaf node is found. The action chosen at each node is one that
-        has the maximum upper confidence bound as in the paper.
-
-        Once a leaf node is found, the neural network is called to return an
-        initial policy P and a value v for the state. This value is propagated
-        up the search path. In case the leaf node is a terminal state, the
-        outcome is propagated up the search path. The values of Ns, Nsa, Qsa are
-        updated.
-
-        NOTE: the return values are the negative of the value of the current
-        state. This is done since v is in [-1,1] and if v is the value of a
-        state for the current player, then its value is -v for the other player.
-
-        Returns:
-            v: the negative of the value of the current canonicalBoard
-        """
+        """执行一次模拟，递归选择置信上界评分最高的动作直至叶节点。
+        非终局叶子由网络给出策略和价值，终局叶子直接使用胜负结果。
+        沿路径更新 Ns、Nsa、Qsa；返回值取反，转换为上一层对手视角。"""
 
         s = self.game.stringRepresentation(canonicalBoard)
 
         if s not in self.Es:
             self.Es[s] = self.game.getGameEnded(canonicalBoard, 1)
         if self.Es[s] != 0:
-            # terminal node
+            # 终局节点。
             return -self.Es[s]
 
         if s not in self.Ps:
-            # leaf node
+            # 尚未展开的叶节点。
             self.Ps[s], v = self.nnet.predict(canonicalBoard)
             heuristic_prior_weight = max(0.0, min(1.0, arg_value(self.args, 'heuristicPriorWeight', 0.0)))
             if heuristic_prior_weight > 0:
@@ -105,15 +82,15 @@ class MCTS():
                 heuristic = heuristic_policy(canonicalBoard, 1, self.game)
                 self.Ps[s] = (1.0 - heuristic_prior_weight) * self.Ps[s] + heuristic_prior_weight * heuristic
             valids = self.game.getValidMoves(canonicalBoard, 1)
-            self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
+            self.Ps[s] = self.Ps[s] * valids  # 屏蔽非法动作。
             sum_Ps_s = np.sum(self.Ps[s])
             if sum_Ps_s > 0:
-                self.Ps[s] /= sum_Ps_s  # renormalize
+                self.Ps[s] /= sum_Ps_s  # 重新归一化。
             else:
-                # if all valid moves were masked make all valid moves equally probable
+                # 合法动作概率全部为零时，改用均匀分布。
 
-                # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
-                # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.   
+                # 合法概率全为零可能与网络能力不足或过拟合有关。
+                # 频繁出现此提示时，应检查网络和训练过程。
                 log.error("All valid moves were masked, doing a workaround.")
                 self.Ps[s] = valids.astype(float)
                 self.Ps[s] /= np.sum(self.Ps[s])
@@ -126,14 +103,14 @@ class MCTS():
         cur_best = -float('inf')
         best_act = -1
 
-        # pick the action with the highest upper confidence bound
+        # 选择置信上界评分最高的动作。
         for a in range(self.game.getActionSize()):
             if valids[a]:
                 if (s, a) in self.Qsa:
                     u = self.Qsa[(s, a)] + self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (
                             1 + self.Nsa[(s, a)])
                 else:
-                    u = self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)  # Q = 0 ?
+                    u = self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)  # 未访问边的价值按零处理。
 
                 if u > cur_best:
                     cur_best = u

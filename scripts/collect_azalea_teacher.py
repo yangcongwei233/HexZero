@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect original Azalea self-play into soft policy/outcome training targets."""
+"""采集原版 Azalea 自博弈，生成软策略分布与终局结果训练目标。"""
 import argparse
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -138,7 +138,7 @@ def main():
                                     elapsed_seconds=time.perf_counter() - started)
                     write_json(output / 'progress.json', progress)
                     print(json.dumps(progress), flush=True)
-        # Sort by game id so the dataset bytes/order don't depend on worker completion order.
+        # 按对局编号排序，保证数据字节和顺序不受任务完成顺序影响。
         order = sorted(range(len(records)), key=lambda i: records[i]['game_id'])
         arrays = {key: np.concatenate([results[i][key] for i in order]) for key in results[0]}
         hashes = {tuple(r['moves']) for r in records}

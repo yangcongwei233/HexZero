@@ -1,4 +1,4 @@
-"""Inference-only policy; choice/observe logic copied from original Azalea."""
+"""仅用于推理的策略，选步和观察动作逻辑派生自 Azalea 原实现。"""
 from __future__ import annotations
 import numpy as np
 from .search_tree import SearchTree
@@ -21,12 +21,7 @@ class Policy:
 
     def choose_action(self, game: SearchableEnv) \
             -> Tuple[int, Dict[str, Any]]:
-        """Choose next move.
-        can raise SearchTreeFull
-        :param game: Current game environment
-        :returns: move - chosen move
-                  info - auxiliary information
-        """
+        """选择下一步，返回动作和辅助信息；树容量不足时可能抛出 SearchTreeFull。"""
         assert not game.state.result
 
         temperature = 0.0
@@ -58,9 +53,7 @@ class Policy:
         return move, info
 
     def execute_action(self, move: int, legal_moves: np.ndarray) -> None:
-        """Update search tree with own or opponent action.
-        can raise SearchTreeFull
-        """
+        """根据任一方的落子更新搜索树；容量不足时可能抛出 SearchTreeFull。"""
         move_id = legal_moves.tolist().index(move)
         self.tree.move(move_id)
         self.ply += 1

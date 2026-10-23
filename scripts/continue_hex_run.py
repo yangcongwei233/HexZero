@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finish an active training segment, then resume its complete snapshot to a target iteration."""
+"""等待当前训练阶段结束，从完整快照续训到目标轮数。"""
 import argparse
 from datetime import datetime, timezone
 import fcntl
@@ -30,7 +30,7 @@ def process_identity(pid):
 
 
 def resume_command(original, folder, snapshot, target):
-    # In particular, omit --seed: main_hex must restore the checkpoint RNG state.
+    # 不传入 --seed，由训练入口恢复断点中的随机数状态。
     pairs = {'--num-iters', '--start-iter', '--checkpoint-file', '--examples-file',
              '--checkpoint-dir', '--seed', '--preset', '--epochs', '--batch-size', '--learning-rate'}
     flags = {'--load-model', '--fresh-replay', '--skip-first-self-play', '--allow-partial-checkpoint'}
@@ -56,7 +56,7 @@ def resume_command(original, folder, snapshot, target):
 
 
 def teacher_options(manifest_path, source_dir, fraction):
-    """Accept only an atomically published, verified complete teacher dataset."""
+    """仅接受已原子发布且完整校验通过的教师数据。"""
     manifest = json.loads(manifest_path.read_text())
     if manifest.get('status') != 'complete' or not manifest.get('sha256'):
         raise ValueError('Teacher collection is not complete')
@@ -132,8 +132,8 @@ def main():
             for key in ('model', 'examples'):
                 if Path(snapshot[key]).name != snapshot[key] or not (folder / snapshot[key]).is_file():
                     raise RuntimeError('Complete model/replay snapshot pair is missing')
-            # Later extensions must inherit the current segment, including any
-            # teacher mixture added after the original launch command.
+            # 延长训练时继承当前阶段的配置，
+            # 包括最初启动后新增的教师数据混入设置。
             command = resume_command(initial.get('active_command', initial['command']),
                                      folder, snapshot, args.target_iteration)
             if args.teacher_manifest:

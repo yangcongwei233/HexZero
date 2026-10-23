@@ -371,7 +371,7 @@ async function refreshModelLibrary() {
   try {
     const library=await request('/api/models');
     if (library.selectedId!==config.modelLibrary.selectedId || library.activeSha256!==config.modelLibrary.activeSha256) {
-      // Another window changed the global engine; its switch saved the old games.
+      // 另一窗口已切换全局引擎，原棋局已在切换时保存。
       location.reload();return;
     }
     config.modelLibrary=library;renderModelLibrary();
@@ -415,7 +415,7 @@ $('applyThreads').addEventListener('click', async () => {
     if (id) { try { state = await request(`/api/session?id=${id}`); } catch (_) {} }
     if (state) {
       $('mode').value = state.mode; $('myPlayer').value = state.myPlayer;
-      // A legacy session can keep its exact budget; this control configures the next game.
+      // 旧会话保留原预算，此控件只设置下一局。
       selectSearchPreset(state.mctsSims); $('seed').value = state.seed;
       $('moveTimeMs').value = state.moveTimeMs || 0;
       $('clockMinutes').value = state.clock?.minutes || 0;

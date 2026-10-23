@@ -1,4 +1,4 @@
-# Derived from Azalea (Apache-2.0); NumPy/ONNX inference adaptation, 2026-10-15.
+# 派生自 Azalea（Apache-2.0），于 2026-10-15 适配 NumPy/ONNX 推理。
 from __future__ import annotations
 
 import dataclasses as dc
@@ -13,45 +13,36 @@ ScalarOrArray = Union[float, np.ndarray]
 
 
 def batch_games(seq: Sequence[GameState]) -> Dict[str, np.ndarray]:
-    """Batch sequence of dataclass objects into arrays
-    :param states: Sequence of dataclasses with scalar or array members
-    :returns: Dict of arrays
-    """
+    """将含标量或数组字段的数据类序列合并为批量数组字典。"""
     df = transpose_dataclass(seq)
     return {name: pad(df[name]) for name in df}
 
 
 def transpose_dataclass(seq: Sequence) \
         -> Dict[str, Sequence[ScalarOrArray]]:
-    """Transpose sequence of dataclass objects
-    :param states: Sequence of dataclasses with scalar or array members
-    :returns: Dict of lists
-    """
+    """将数据类序列转置为按字段分组的列表字典。"""
     names = [f.name for f in dc.fields(seq[0])]
     values = zip(*map(dc.astuple, seq))
-    # {'board': [...], 'legal_moves': [...], ...}
+    # 按字段归并，例如棋盘列表和合法动作列表。
     return dict(zip(names, values))
 
 
 @overload
 def pad(mats: Sequence[float]) -> np.ndarray:
-    """Cast list of scalars as tensor.
-    """
+    """将标量列表转换为数组。"""
     ...
 
 
 @overload
 def pad(mats: Sequence[np.ndarray],
         size: Optional[np.ndarray]) -> np.ndarray:
-    """Pad n-dimensional matrices with zeros.
-    """
+    """对多维矩阵补零。"""
     ...
 
 
-#@jit
+# 此函数暂不启用即时编译。
 def pad(mats, size=None):
-    """Pad n-dimensional matrices with zeros.
-    """
+    """对多维矩阵补零。"""
     if isinstance(mats[0], (int, float)):
         assert size is None
         return np.array(mats)

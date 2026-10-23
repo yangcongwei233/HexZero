@@ -307,7 +307,7 @@ def main():
             torch.manual_seed(args.seed)
     else:
         log.warning('Starting from a new network')
-    # Migration is a one-time load operation, never an Arena rollback policy.
+    # 迁移只在加载时执行一次，不作为评估失败后的回滚策略。
     nnet.args.allow_partial_checkpoint = False
     nnet_args.allow_partial_checkpoint = False
     for cli_name, net_name in (('epochs', 'epochs'), ('batch_size', 'batch_size'), ('learning_rate', 'lr')):

@@ -153,7 +153,7 @@ def compute_bradley_terry_elo(num_players, outcomes, anchor_index=0, max_iter=10
         wins[j] += j_wins + draw_half
         games[(i, j)] += i_wins + draws + j_wins
 
-    # Small prior keeps ratings finite when one model has only wins or losses.
+    # 加入小先验，避免全胜或全负模型的评分趋于无穷。
     strengths = np.ones(num_players, dtype=np.float64)
     prior = 0.5
     wins += prior

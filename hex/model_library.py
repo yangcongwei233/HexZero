@@ -1,4 +1,4 @@
-"""Discover portable HexZero ONNX models without importing PyTorch."""
+"""发现可用于本地对弈的 HexZero ONNX 模型，无需导入 PyTorch。"""
 import json
 from pathlib import Path
 
@@ -40,7 +40,7 @@ class ModelLibrary:
                     info = file.stat()
                     return info.st_size, info.st_mtime_ns
                 except OSError:
-                    return None  # A directory may be moved while copying models.
+                    return None  # 复制模型期间，目录可能被移动。
             signature = tuple(file_signature(p) for p in (path, manifest_path))
             previous = self.cache.get(ident)
             if previous and previous[0] == signature:
@@ -54,7 +54,7 @@ class ModelLibrary:
                         raise ValueError('缺少同名 .onnx.json 清单，请一起复制')
                     header = json.loads(manifest_path.read_text(encoding='utf-8'))
                     if isinstance(header, dict) and header.get('kind') == 'azalea':
-                        entry = None  # Reference weights have a separate fixed role.
+                        entry = None  # 参考模型有独立的固定用途。
                     else:
                         manifest = load_manifest(path, 'trained')
                         check_compatible(manifest, self.board_size)
@@ -72,7 +72,7 @@ class ModelLibrary:
                     entry['error'] = str(exc)
             cache[ident] = signature, entry
             if entry is not None: entries.append(entry)
-        # Explain why an unconverted PyTorch checkpoint alone is not selectable.
+        # 提示未经转换的 PyTorch 断点为何不可直接选择。
         if self.root.is_dir():
             for path in sorted(self.root.rglob('*')):
                 if (path.is_file() and path.name.endswith(('.pth', '.pth.tar', '.pt'))
@@ -96,7 +96,7 @@ class ModelLibrary:
         if not entry['available']: raise ValueError(entry['error'])
         path = (self.root / ident).resolve()
         if not path.is_relative_to(self.root): raise ValueError('模型路径超出 models 文件夹')
-        # Always hash again at selection time, even if a file's timestamp was preserved.
+        # 选择时重新计算哈希，即使文件时间戳未变化。
         check_compatible(load_manifest(path, 'trained'), self.board_size)
         return path
 

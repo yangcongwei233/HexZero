@@ -1,5 +1,5 @@
-// Batched HexZero search. C ABI, FP64 statistics, FP32 network unchanged.
-// No fast-math/FMA contraction: preserve the Python/Numba PUCT operation order.
+// HexZero 批量搜索：使用 C 接口、双精度统计和单精度网络。
+// 保持 Python/Numba 的 PUCT 运算顺序，禁用快速数学优化和乘加融合。
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -23,7 +23,7 @@ struct Node {
     std::array<double, MAX_A> prior{}, total{};
     std::array<int32_t, MAX_A> count{}, pending{}, child{}, order{};
     int32_t parent = -1, action = -1, visits = 0, pending_total = 0, used = 0;
-    int32_t terminal = 2; // 2 = unknown, 0 = ongoing, +/-1 = canonical winner
+    int32_t terminal = 2; // 2 表示未检查，0 表示未结束，±1 表示规范视角的胜负。
     uint64_t tag = 0;
     bool expanded = false;
     double value = 0, edge_prior = 1;
@@ -31,8 +31,8 @@ struct Node {
 };
 struct Tree {
     int n, actions;
-    // Error text belongs to this tree. Do not register C++ thread-local
-    // destructors in a DLL called by short-lived Python HTTP threads.
+    // 错误信息归当前树所有；避免在线程短暂存活的 Python 请求中
+    // 注册动态库线程局部对象的析构函数。
     std::array<char, 1024> error{};
     std::vector<Node> nodes;
     std::vector<int32_t> leaves, evaluate;
@@ -137,7 +137,7 @@ struct Tree {
     }
     void commit(const double* priors, const double* values, int count) {
         if (size_t(count) != evaluate.size()) throw std::invalid_argument("inference batch mismatch");
-        // Validate the entire batch before mutating the tree.
+        // 修改树之前先校验整批输入。
         for (int i = 0; i < count; ++i) {
             if (!std::isfinite(values[i])) throw std::invalid_argument("nonfinite network value");
             for (int a = 0; a < actions; ++a)
@@ -149,7 +149,7 @@ struct Tree {
             std::copy_n(priors + i*actions, actions, node.prior.begin());
             node.value = values[i]; node.expanded = true;
         }
-        // Keep all selected paths, including duplicate leaves; preserve backup order.
+        // 保留全部路径和回传顺序，包括到达重复叶子的路径。
         for (int leaf : leaves) {
             double value = -nodes[leaf].value;
             int id = leaf;
@@ -168,7 +168,7 @@ struct Tree {
         int child = nodes.empty() ? -1 : nodes[0].child[action];
         leaves.clear(); evaluate.clear();
         if (child < 0) { nodes.clear(); return false; }
-        // Compact only the reachable subtree. This bounds memory over a long game.
+        // 仅保留可达子树，控制长对局的内存占用。
         std::vector<int> order{child}, mapping(nodes.size(), -1);
         mapping[child] = 0;
         for (size_t i = 0; i < order.size(); ++i)
@@ -242,7 +242,7 @@ API int hx_commit(void* p, const double* priors, const double* values, int count
     tree(p).commit(priors, values, count); return 0;
 }); }
 API int hx_advance(void* p, int action) { return guard(p, [&] { return int(tree(p).advance(action)); }); }
-// Copies only: no NumPy view can outlive/refer into reallocated native storage.
+// 仅返回副本，避免 NumPy 视图引用已释放或重新分配的原生存储。
 API int hx_snapshot(void* p, int id, int8_t* board, double* prior, double* totals,
                     int32_t* counts, int32_t* children, int32_t* order, int32_t* info, double* edge_prior) {
     return guard(p, [&] {

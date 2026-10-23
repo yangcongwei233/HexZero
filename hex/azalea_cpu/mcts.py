@@ -1,4 +1,4 @@
-# Derived from Azalea (Apache-2.0); NumPy/ONNX inference adaptation, 2026-10-15.
+# 派生自 Azalea（Apache-2.0），于 2026-10-15 适配 NumPy/ONNX 推理。
 from __future__ import annotations
 
 from typing import Dict, Sequence, Set, Tuple
@@ -22,8 +22,7 @@ def evaluate_root(tree: SearchTree,
                   game: SearchableEnv,
                   net: Network,
                   rng: RandomState) -> None:
-    """Evaluate root node.
-    """
+    """评估根节点。"""
     check_game_state(game.state)
     value, _, prior_prob = evaluate_batch(game, net, [game.state], rng)
     tree.root.create_child_nodes(len(prior_prob[0]), prior_prob[0])
@@ -51,39 +50,32 @@ def select_batch(tree: SearchTree, game: SearchableEnv,
                  noise_scale: float, noise_alpha: float,
                  rng: RandomState) \
         -> Tuple[Sequence[SearchNode], Sequence[GameState]]:
-    """Select batch of leaf nodes for expansion
-    Replay moves in game and collect resulting game states.
-    :param batch_size: how many positions to select
-    :param exploration_coef: exploration coefficient c_puct
-    :param noise_scale: Dirichlet exploration noise scale
-    :param noise_alpha: Dirichlet exploration noise concentration
-    Return leaf board states
-    """
-    leaf_nodes = []   # leaf nodes in each path
-    leaf_states = []  # game states in each path
+    """选择待扩展的一批叶节点，并回放路径以收集棋盘状态。
+    batch_size 为批量大小，exploration_coef 为探索系数；
+    noise_scale 和 noise_alpha 控制根节点 Dirichlet 噪声。"""
+    leaf_nodes = []   # 各路径的叶节点。
+    leaf_states = []  # 各路径对应的棋盘状态。
 
     for i in range(batch_size):
         with tree.search_forward(game) as root_iter:
             leaf_node, leaf_state = select_leaf(
                 root_iter, exploration_coef, noise_scale, noise_alpha, rng)
-            # add virtual loss to enforce search diversity:
-            # assume selected path leads to loss
+            # 添加虚拟损失，使同批搜索分散到不同路径。
+            # 暂时假定所选路径失败。
             apply_virtual_loss([leaf_node], 1)
             leaf_states.append(leaf_state)
             leaf_nodes.append(leaf_node)
-    # undo above virtual losses
+    # 撤销上述虚拟损失。
     apply_virtual_loss(leaf_nodes, -1)
 
-    # remove duplicate leaves
+    # 合并重复叶节点。
     leaf_nodes, leaf_states = deduplicate_leaves(leaf_nodes, leaf_states)
     return leaf_nodes, leaf_states
 
 
 def apply_virtual_loss(leaf_nodes: Sequence[SearchNode], amount: int) -> None:
-    """Edit search tree in place to add virtual loss.
-    Add virtual losses to both players on all paths from root to given leafs.
-    :param amount: +1 to apply virtual loss, -1 to undo it
-    """
+    """沿叶节点到根的路径原地增减虚拟损失。
+    amount 为 1 时添加，为 −1 时撤销。"""
     if virtual_path is not None:
         for node in leaf_nodes:
             tree = node.tree
@@ -92,10 +84,10 @@ def apply_virtual_loss(leaf_nodes: Sequence[SearchNode], amount: int) -> None:
     for node in leaf_nodes:
         while not node.is_root():
             node.num_visits += amount
-            # we want the modification to look like a loss from the
-            # perspective of each node's move_stats, and therefore, the values
-            # should look like wins from each node's own perspective
-            # (assuming a two-player game here)
+            # 从父节点的动作统计视角看，虚拟访问应表现为失败。
+            # 因此在子节点自身视角保存价值时，符号需要相反，
+            # 使子节点看起来获胜。
+            # 这里假定游戏为双人零和对抗。
             node.total_value += amount
             node = node.parent
 
@@ -105,11 +97,7 @@ def select_leaf(search_iter: ForwardSearchIterator,
                 noise_scale: float,
                 noise_alpha: float,
                 rng: RandomState) -> Tuple[SearchNode, GameState]:
-    """Sample path of moves from current (root) position.
-    Walk one path and return final leaf node, which is either:
-    1. unevaluated: game continues but number of children is not known
-    2. terminal: game terminates and node has zero children
-    """
+    """从当前根节点选择一条路径，返回未评估叶子或终局叶子。"""
     while not search_iter.node.is_leaf():
         scores = score_actions(search_iter.node.move_stats,
                                exploration_coef=exploration_coef,
@@ -119,8 +107,8 @@ def select_leaf(search_iter: ForwardSearchIterator,
         assert len(scores) == len(search_iter.state.legal_moves)
         child_id = np.argmax(scores)
         search_iter.step(child_id)
-        noise_scale = 0.0  # only explore at root
-    # access full state of new leaf
+        noise_scale = 0.0  # 仅在根节点加入探索噪声。
+    # 获取新叶节点的完整状态。
     return search_iter.node, search_iter.state
 
 
@@ -129,25 +117,25 @@ def score_actions(stats: SearchStats,
                   noise_scale: float,
                   noise_alpha: float,
                   rng: RandomState) -> np.ndarray:
-    """Score actions (child nodes) according to UCT heuristic (AZ flavor)"""
-    prior = stats.prior_prob  # P(s, a)
+    """按 AlphaZero 风格的置信上界公式给各动作评分。"""
+    prior = stats.prior_prob  # 动作先验 P(s, a)。
     if noise_scale:
-        # explore random actions at root node
+        # 在根节点探索随机动作。
         noise = rng.dirichlet(np.full(len(prior), noise_alpha))
         prior = (
             (1.0 - noise_scale) * prior + noise_scale * noise
         ).astype(np.float32)
     visit_gap = np.sqrt(np.sum(stats.num_visits)) / (1.0 + stats.num_visits)
-    action_uct_boost = exploration_coef * prior * visit_gap  # U(s, a)
-    action_value = stats.total_value / stats.num_visits.clip(min=1)  # Q(s, a)
-    score = action_value + action_uct_boost  # Q(s, a) + U(s, a)
+    action_uct_boost = exploration_coef * prior * visit_gap  # 探索项 U(s, a)。
+    action_value = stats.total_value / stats.num_visits.clip(min=1)  # 平均价值 Q(s, a)。
+    score = action_value + action_uct_boost  # 综合价值与探索项。
     return score
 
 
 def deduplicate_leaves(leaf_nodes: Sequence[SearchNode],
                        leaf_states: Sequence[GameState]) \
         -> Tuple[Sequence[SearchNode], Sequence[GameState]]:
-    """Remove duplicate leafs"""
+    """移除重复叶节点。"""
     seen: Set[int] = set()
 
     dedup_nodes = []
@@ -165,30 +153,23 @@ def evaluate_batch(game: SearchableEnv,
                    states: Sequence[GameState],
                    rng: RandomState) \
         -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Evaluate batch of board positions (new tree nodes)
-    Run network to evaluate value and move probabilities of
-    each board position, from the perspective of each player in turn.
-    :returns tuple of arrays:
-        value - game values (of active player) for each position,
-        num_children - number of moves (nodes) for each position,
-        prior_prob - move priors for each position
-    """
+    """批量评估新局面，返回当前方价值、合法动作数和动作先验数组。"""
     batch = prep.batch_games(states)
 
-    # FIXME necessary?
+    # 待确认此处复制是否仍有必要。
     batch['board'] = batch['board'].copy()
     batch['legal_moves'] = batch['legal_moves'].copy()
 
-    # normalize boards and moves for the network so that it can always
-    # evaluate positions from the same perspective (first player/color=0)
-    # note that the resulting values and move priors are still in the
-    # active player's perspective
+    # 将棋盘和动作统一为网络的先手视角（颜色编号 0）。
+    # 此变换只作用于网络输入，
+    # 输出价值和动作先验仍对应
+    # 当前执棋方的视角。
     flip_mask = batch['color'] == 1
     batch['board'][flip_mask], batch['legal_moves'][flip_mask] = \
         game.flip_player_board_moves(batch['board'][flip_mask],
                                      batch['legal_moves'][flip_mask])
 
-    # data augmentation by random input variations
+    # 随机变换输入，进行数据增强。
     batch['board'], batch['legal_moves'] = \
         game.random_reflect(batch['board'], batch['legal_moves'],
                             rng=rng)
@@ -197,12 +178,12 @@ def evaluate_batch(game: SearchableEnv,
     prior_prob = np.zeros_like(batch['legal_moves'], dtype=np.float32)
     num_children = (batch['legal_moves'] > 0).sum(1)
 
-    # for each terminal game position, value is -1 from the active
-    # (losing) player perspective
+    # 终局时轮到失败方行动，
+    # 因此其视角的价值为 −1。
     term_mask = batch['result'] != 0
     value[term_mask] = -1.0
 
-    # assert that terminal results are always losses
+    # 确认终局结果均为当前方失败。
     own_result = batch['result'].copy()
     own_result[flip_mask] = flip_result(own_result[flip_mask])
     assert all(own_result[term_mask] == 1)
@@ -221,20 +202,16 @@ def evaluate_batch(game: SearchableEnv,
 
 
 def flip_result(result):
-    #njit fails at all()
-    #assert all((result >= 0) & (result <= 3)), 'result out of range'
+    # Numba 无法编译下方使用 all() 的检查。
+    # 已停用的检查：结果编码应在 0～3 范围内。
     return (result > 0) * (4 - result)
 
 
 def expand_batch(leaf_nodes: Sequence[SearchNode],
                  num_children: np.ndarray,
                  prior_probs: np.ndarray) -> None:
-    """Initialize MCTS statistics for batch of new leaf nodes.
-    :param leaf_nodes: List of leaf nodes to expand
-    :param num_children: number of child nodes for each leaf, 1d array
-    :param prior_probs: 2d array of prior probability vectors for
-                        each node
-    """
+    """为叶节点初始化搜索统计；num_children 为各叶子的子节点数，
+    prior_probs 为各叶子的先验概率向量。"""
     for i, node in enumerate(leaf_nodes):
         assert node.is_leaf(), 'expanded node is not leaf'
         if not node.is_terminal():
@@ -244,9 +221,7 @@ def expand_batch(leaf_nodes: Sequence[SearchNode],
 
 def backup_batch(leaf_nodes: Sequence[SearchNode],
                  values: np.ndarray) -> None:
-    """Update tree MCTS statistics with batch of evaluation results.
-    :param values: Game value from leaf node player's perspective
-    """
+    """批量回传叶节点价值，输入价值采用各叶子执棋方的视角。"""
     if backup_paths is not None and leaf_nodes:
         tree = leaf_nodes[0].tree
         leaves = np.fromiter((node.id for node in leaf_nodes), dtype=np.int64)
@@ -256,7 +231,7 @@ def backup_batch(leaf_nodes: Sequence[SearchNode],
         while True:
             node.total_value += value
             node.num_visits += 1
-            # flip value to opponent's perspective
+            # 转换为对手视角的价值。
             value = -value
             if node.is_root():
                 break
@@ -270,9 +245,7 @@ def sample_paths(tree: SearchTree, game: SearchableEnv, net: Network,
                  exploration_noise_scale: float,
                  exploration_noise_alpha: float,
                  rng: RandomState, time_limit=0) -> Dict[str, float]:
-    """Sample paths and update tree statistics in place.
-    :returns: Search tree metrics
-    """
+    """采样路径并原地更新搜索统计，返回搜索指标。"""
     num_batches = num_simulations // batch_size + 1
     if not math.isfinite(time_limit) or time_limit < 0:
         raise ValueError('time_limit must be finite and nonnegative')
@@ -286,13 +259,13 @@ def sample_paths(tree: SearchTree, game: SearchableEnv, net: Network,
         evaluate_root(tree, game, net, rng)
 
     for i in range(num_batches):
-        # Azalea expands all legal children, rather than one node per path.
-        # Reserve the worst case for the entire batch before mutating it.
+        # Azalea 一次展开全部合法子节点，每条路径可能新增多个节点。
+        # 修改树前，按整批最大需求预留空间。
         from .search_tree import MAX_NODES
         if tree.num_nodes + batch_size * game.state.board.size > MAX_NODES:
             stop_reason = 'node_limit'
             break
-        # Always complete one batch at a fresh root, so there is a legal choice.
+        # 新根至少完成一批搜索，以提供合法候选。
         if deadline and np.any(tree.root.move_stats.num_visits > 0) and time.perf_counter() + estimate * 1.3 + .003 >= deadline:
             stop_reason = 'time_budget'
             break
@@ -307,7 +280,7 @@ def sample_paths(tree: SearchTree, game: SearchableEnv, net: Network,
             game, net, leaf_states, rng)
         expand_batch(leaf_nodes, num_children, prior_prob)
         backup_batch(leaf_nodes, values)
-        #search_depth += np.sum(path_lens)
+        # 暂未累计搜索深度。
         search_value += np.sum(values)
         completed += len(leaf_nodes)
         batches += 1
@@ -316,7 +289,7 @@ def sample_paths(tree: SearchTree, game: SearchableEnv, net: Network,
             tree._batch_seconds = estimate
 
     metrics = {
-        #'search_depth': search_depth / (num_batches * batch_size),
+        # 暂未输出平均搜索深度。
         'search_value': search_value / max(1, batches * batch_size),
         'completed_simulations': completed,
         'attempted_simulations': batches * batch_size,

@@ -1,4 +1,4 @@
-"""Compact, versioned teacher targets and balanced sampling for Hex training."""
+"""提供紧凑、带版本的教师样本及平衡采样。"""
 import hashlib
 import json
 import os
@@ -20,7 +20,7 @@ def file_digest(path):
 
 
 def canonical_target(game, board, player, legal_moves, visits):
-    """Original Azalea legal moves are 1-based RAW coordinates, not network coordinates."""
+    """Azalea 合法动作使用从 1 开始的原始坐标，区别于网络输入坐标。"""
     legal = np.asarray(legal_moves, dtype=np.int64) - 1
     counts = np.asarray(visits, dtype=np.float64)
     expected = np.flatnonzero(np.asarray(board).ravel() == 0)
@@ -42,7 +42,7 @@ def save_dataset(path, arrays, metadata):
     try:
         with os.fdopen(fd, 'wb') as stream:
             np.savez_compressed(stream, metadata=np.array(json.dumps(meta)), **arrays)
-        TeacherDataset(temporary, int(meta['board_size']))  # Validate before publishing.
+        TeacherDataset(temporary, int(meta['board_size']))  # 发布前先校验数据。
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
@@ -91,7 +91,7 @@ class TeacherDataset:
         return len(self.boards)
 
     def sample(self, count, rng=np.random):
-        """Balance actual colors, then randomly use identity or the valid 180° symmetry."""
+        """先平衡实际棋子颜色，再随机保留原局面或旋转 180°。"""
         count = int(count)
         blue = count // 2 + (int(rng.randint(2)) if count % 2 else 0)
         ids = np.concatenate([rng.choice(self.by_color[1], blue, replace=True),
