@@ -16,6 +16,12 @@ _LIB = None
 
 
 def library():
+    """加载与当前系统匹配的 ABI 2 动态库，并声明每个 C 接口的参数类型。
+
+    ctypes 不知道 C++ 对象布局：这里只传 opaque handle 和连续 NumPy 缓冲区。
+    显式 restype/argtypes 防止 64 位指针被当成 32 位整数截断。ABI 不匹配时
+    拒绝调用，由 local_mcts 在 auto 模式回退；不能勉强使用旧版 DLL。
+    """
     global _LIB
     if _LIB is not None:
         return _LIB
@@ -48,6 +54,11 @@ def ptr(array):
 
 
 class NativeNode:
+    """用于候选分析的只读节点视图，不直接暴露 C++ vector 内存。
+
+    generation 在换根/压缩树后改变，旧节点视图必须失效；epoch 在批量搜索后
+    改变，已有节点需要重新取统计快照。这样 MultiPV 不会读到释放后的地址。
+    """
     def __init__(self, tree, index):
         self.tree, self.index, self.generation = weakref.proxy(tree), index, tree.generation
         self.epoch, self.data = -1, None
@@ -105,6 +116,11 @@ class NativeNode:
 
 
 class NativeTree:
+    """拥有一个 C++ Tree，弱引用终结器负责释放 handle，避免循环引用泄漏。
+
+    真实落子时 hx_advance 只留下对应子树；没搜索过该落点则清空，下一次从
+    真实棋盘重建。模型分析使用另一棵树，不能借此把一次搜索变成更多次搜索。
+    """
     def __init__(self, game):
         self.game, self.actions = game, game.getActionSize()
         self.lib = library()
@@ -170,6 +186,12 @@ class _NativeBatch:
 
 
 class NativeMCTS(AzaleaMCTS):
+    """保持 AzaleaMCTS 的外层搜索语义，把最热的树遍历/回传交给 C++。
+
+    仍由父类负责搜索上限、限时、根噪声和最终并列选择；网络继续批量 FP32
+    推理，树中先验/价值统计使用 FP64。本类不改变 cpuct、不剪去合法落点，
+    也不加入量化或启发式先验，因此同预算的行为可与 Python 实现逐节点核对。
+    """
     backend = 'cpp'
 
     def __init__(self, game, nnet, args):
@@ -178,17 +200,29 @@ class NativeMCTS(AzaleaMCTS):
         self._boards = np.empty((max(1, int(arg_value(args, 'mctsBatchSize', 1))), game.n, game.n), np.int8)
 
     def _select_batch(self, batch_size):
+        """在 C++ 中选择多条 PUCT 路径，暂记 virtual loss，减少批内重复选择。"""
         prior = np.ascontiguousarray(self._root_prior, dtype=np.float64)
         self.tree.call('hx_select', batch_size, ptr(prior), float(arg_value(self.args, 'cpuct', 1.)))
         self.tree.epoch += 1
         return _NativeBatch(batch_size)
 
     def _safe_batch_size(self, requested):
+        """65536 为正常搜索的节点预算，不是动态检测系统剩余内存。
+
+        每条路径最多新建一个节点；在选择前缩小批次，保留已完成统计用于落子。
+        C++ 的 131072 硬上限是第二层保护，正常入口应在达到它之前停止。
+        """
         # At most one new node per selected path. Stop before selecting a batch
         # that could exhaust storage; completed statistics remain usable.
         return min(requested, max(0, 65536 - self.tree.call('hx_size')))
 
     def _evaluate_and_backup(self, leaves):
+        """三段式批处理：prepare 去重叶节点 → ONNX 推理 → commit 展开并回传。
+
+        终局不需要网络；同一个叶节点只评估一次，但每条被选择路径仍各自回传。
+        网络输出先屏蔽非法落点并归一化；保留原逐行 NumPy 求和顺序，避免仅因
+        浮点加法次序改变访问次数并列关系。回传时每上升一层都翻转价值符号。
+        """
         if not isinstance(leaves, _NativeBatch):
             if len(leaves) != 1 or leaves[0][0] is not self.tree.root or leaves[0][1]:
                 raise ValueError('Native search expects a selected batch or the unevaluated root')

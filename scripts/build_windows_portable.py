@@ -126,7 +126,7 @@ def main():
         shutil.copy2(path, runtime / path.name)
     (runtime / 'python311._pth').write_text('Lib\npython311.zip\n.\nLib/site-packages\n../app\nimport site\n')
 
-    for name in ('hex_play_server.py', 'Game.py', 'NeuralNet.py', 'MCTS.py', 'utils.py', 'LICENSE'):
+    for name in ('hex_play_server.py', 'hex_play_core.py', 'Game.py', 'NeuralNet.py', 'MCTS.py', 'utils.py', 'LICENSE'):
         shutil.copy2(ROOT / name, app / name)
     copy_tree(ROOT / 'hex', app / 'hex')
     if not (app / 'hex/native/hex_search.dll').is_file():

@@ -1,0 +1,6 @@
+# 桌面推理环境；Tk 随 python.org 的 Windows 标准安装版提供。
+# 不需要 PyTorch、CUDA 或浏览器。C++ 搜索库缺失时自动回退 Python/Numba。
+numpy>=1.24
+numba>=0.58
+onnxruntime>=1.17
+typing-extensions>=4.8

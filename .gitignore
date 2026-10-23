@@ -102,3 +102,7 @@ pretrained_models/
 *.tar.gz
 *.pem
 *.key
+
+# 开发验证留在本机，公开仓库仅提交产品与训练源码
+/hex/test_*.py
+/tests/

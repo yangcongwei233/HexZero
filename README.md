@@ -6,6 +6,42 @@ HexZero 是一个面向计算机博弈比赛的海克斯棋（Hex）AlphaZero �
 
 当前重点不是通用棋类框架，而是训练和评估 Hex 专用智能体。
 
+## 原生桌面对弈
+
+现在提供独立的 Tk 桌面窗口，直接调用本地引擎，不使用浏览器、WebView 或 HTTP 服务。
+保留 3250 模型、Azalea、人机对弈、手动开局、三个候选及后续变化、打谱、详细评注和比赛棋钟。
+ONNX 推理保持 FP32，继续使用 C++ 批量搜索与树复用，不做量化。
+
+从源码启动（Python 3.11+；Windows 使用 python.org 标准安装版并包含 Tcl/Tk）：
+
+```bash
+python -m pip install -r requirements-desktop.txt
+python hex_desktop.py --models models --model iteration_3250/trained.onnx
+```
+
+Windows 也可双击 `START_DESKTOP.bat`。Linux 若缺少 Tk，需要安装对应 Python 的 Tk 组件。
+模型文件不在源码仓库：请将 `trained.onnx` 与 `trained.onnx.json` 放入 `models/iteration_3250/`，
+将 `reference.onnx` 与清单放入 `models/azalea/`。新模型复制进目录后会自动出现在选择列表中。
+没有 C++ 库时会回退 Python/Numba 搜索；构建方式见 `hex/native/README.txt`。
+只运行桌面对弈不需要 PyTorch，训练仍使用后文的 `requirements.txt`。
+
+默认 12800 次搜索、4 线程；搜索上限可选 800、1200、2000、3200、6400、12800、51200，线程可选 4～16。
+随机种子移到设置页的高级设置，默认 0：它决定最大访问次数并列时的选择，最佳走法唯一时可能没有影响，
+不能替代手动开局。限时模式还受运行速度影响，同种子不保证跨机器得到同一局棋。
+
+主要入口及注释：
+
+- `hex_desktop.py`：原生控件、六边形棋盘、预览、异步事件与关闭保存。
+- `hex/desktop_service.py`：独占工作线程的模型服务、环境检查、设置保存和命令分派。
+- `hex_play_core.py`：与界面无关的对局状态机、双方搜索树、棋钟和棋谱业务。
+- `hex/native_mcts.py`：C++ ABI、节点快照、批量推理、树复用及内存保护说明。
+- `portable/desktop_launcher.py`：Windows 的 Tcl/Tk 路径设置与原生进程异常日志。
+- `scripts/build_desktop_portable.py`：从已验证的 Windows 运行库、模型和官方 Tcl/Tk 组件构建离线桌面包。
+
+完整包构建产物为 `dist/HexDesktop-Windows-x64.zip`，详细使用说明见 `portable/README-Desktop.txt`。
+源码仓库保留训练和对弈代码，自动测试文件与测试产物仅留开发机，不提交到 GitHub。
+旧 `hex_play_server.py` / `hex_web/` 保留兼容入口，桌面版不加载它们。
+
 ## 项目特点
 
 - 支持 5x5、7x7、11x11 等不同棋盘尺寸。
@@ -49,12 +85,10 @@ hex/
 ├── opening_book.py              # 开局库读取逻辑
 ├── opening_book.json            # 5x5 / 7x7 / 11x11 开局推荐
 ├── hex_action_selector.py       # 开局库、战术检查、MCTS 的动作选择封装
-├── pytorch/
-│   ├── HexNNet.py               # Hex 神经网络结构
-│   └── NNet.py                  # PyTorch NNetWrapper，含 predict_batch
-├── test_hex.py                  # Hex 基础规则测试
-├── test_hex_priors.py           # 规则先验和 heuristic prior 测试
-└── test_azalea_backend.py       # azalea 后端、batch MCTS、replay/jsonl 测试
+├── desktop_service.py          # 桌面窗口的串行模型与棋局服务
+└── pytorch/
+    ├── HexNNet.py               # Hex 神经网络结构
+    └── NNet.py                  # PyTorch NNetWrapper，含 predict_batch
 ```
 
 辅助工具：
@@ -62,7 +96,9 @@ hex/
 ```text
 visualize_hex.py                 # Hex 可视化脚本
 visualize_hex_batch.py           # 批量可视化脚本
-hex_play_server.py               # 人类/Azalea 对训练模型的本地测试台
+hex_desktop.py                   # 独立桌面对弈窗口
+hex_play_core.py                 # 桌面和旧网页入口共用的棋局逻辑
+hex_play_server.py               # 兼容旧网页对弈入口
 play_local.sh                    # 本地对弈启动脚本
 scripts/sync_play_model.py       # 从服务器导出最新已保存模型的推理权重
 hex_eval.py                      # 离线 checkpoint 循环赛/Elo 评估
@@ -93,24 +129,14 @@ python -m pip install -r requirements.txt
 
 如果没有安装 numba，项目会自动回退到 BFS 胜负判断。
 
-## 快速测试
+## 源码检查
 
-运行 Hex 相关单元测试：
-
-```bash
-cd HexZero
-
-python -m unittest \
-  hex.test_hex \
-  hex.test_hex_priors \
-  hex.test_azalea_backend \
-  hex.test_regressions
-```
+自动测试文件仅保留在开发机器，不包含在公开源码中。
 
 检查 Python 文件是否可编译：
 
 ```bash
-python -m compileall -q hex Coach.py main_hex.py
+python -m compileall -q hex hex_desktop.py hex_play_core.py Coach.py main_hex.py
 ```
 
 ## 训练示例
@@ -344,11 +370,11 @@ python scripts/sync_play_model.py \
 
 可将本机默认连接设置写入不提交到 Git 的 `local_config/server.json`，字段为 `server`、`port`、`run_dir`、`remote_python`，之后可不带参数运行；命令行参数优先。脚本只读服务器断点，传输约 2.4 MiB 推理权重，不下载回放，不在服务器写入额外断点。来源轮次、校验值记录在 `trained.pth.tar.json`；服务器后续训练不会改变已加载的本地模型。
 
-Windows 10/11 x64 离线版构建产物为 `dist/HexLocal-Windows-x64.zip`：解压后双击 `START_HEX.bat`。2026-10-21 发布包默认使用 3250 轮模型、12800 次搜索，包含 Azalea 参考模型。使用 ONNX Runtime 原生 CPU 推理与兼容版 C++ 搜索内核，保持 FP32，不使用量化；无需安装 Python、PyTorch、CUDA 或 C++ 编译器。网页模型卡片中可选 4～16 个 CPU 线程，应用后保留棋局，并保存设置供下次启动使用。发布包默认 4 线程。
+Windows 10/11 x64 桌面离线版构建产物为 `dist/HexDesktop-Windows-x64.zip`，固定下载路径 `dist/HexLocal-Windows-x64.zip` 同步提供此包：解压后双击 `START_HEX.bat`。2026-10-23 发布包默认使用 3250 轮模型、12800 次搜索，包含 Azalea 参考模型。使用 ONNX Runtime 原生 CPU 推理与兼容版 C++ 搜索内核，保持 FP32，不使用量化；无需安装 Python、PyTorch、CUDA 或 C++ 编译器。桌面“设置”中可选 4～16 个 CPU 线程，应用后保留棋局，并保存设置供下次启动使用。发布包默认 4 线程。
 
-Git 仓库保存源码、配置和测试；模型、训练日志、经验池、服务器备份与 Windows 安装包不随源码提交。首次克隆后需自行准备模型；预编译原生库也不入库，可按 `hex/native/README.txt` 构建。
+Git 仓库保存训练与对弈源码、配置、开局库和文档；自动测试文件、模型、训练日志、经验池、评测产物、服务器备份与 Windows 安装包不随源码提交。首次克隆后需自行准备模型；预编译原生库也不入库，可按 `hex/native/README.txt` 构建。
 
-每次启动先在独立进程检查运行库、架构、写权限和三个模型的真实推理；`CHECK_ENV.bat` 可单独检查，记录在 `logs/environment-check.json`。`SELF_TEST.bat` 进一步检查手动开局、双方分析及交接。包内保留原始权重和 Azalea 源码，并包含经过数值验证的 ONNX 模型。导出脚本为 `scripts/export_play_onnx.py`，打包脚本为 `scripts/build_windows_portable.py`，使用说明在 `portable/README-Windows.txt`。Windows 实机启动与本机 Linux 上的功能验证分开记录。
+每次启动检查 Tk、64 位运行库及所选模型的真实推理，并预热搜索；`CHECK_ENV.bat` 可单独检查，记录在 `userdata/environment-check.json`。`START_HEX_PYTHON.bat` 保留 ONNX 推理，只切换为 Python 搜索核心。包内保留 Azalea 源码和许可，并包含经过数值验证的 ONNX 模型。导出脚本为 `scripts/export_play_onnx.py`，桌面打包脚本为 `scripts/build_desktop_portable.py`，使用说明在 `portable/README-Desktop.txt`。桌面交互与真实模型已在 Linux 验证；新界面尚未在 Windows 实机验证。
 
 ## 输出文件
 
@@ -485,6 +511,6 @@ python main_hex.py --board-size 11 \
 
 本项目基于 `alpha-zero-general` 改造，核心训练循环仍沿用其易读、易扩展的设计；Hex 专用训练结构参考了 `azalea` 项目中的批量搜索、自博弈工程组织和 replay buffer 思路。
 
-当前仓库用于个人研究、比赛训练和工程实验。建议只提交源码、配置、测试、开局库和文档，不提交模型权重、训练样本、日志和缓存。
+当前仓库用于个人研究、比赛训练和工程实验。公开提交训练与对弈源码、配置、开局库和文档；测试文件及测试产物仅保留本机，不提交模型权重、训练样本、日志和缓存。
 
-Windows 离线版支持根目录 `models` 自动扫描：复制任意模型子目录中的 `trained.onnx` 与 `trained.onnx.json`，网页中选择并新开局，选择及线程数会保存。默认附带 750、800、880 轮和 Azalea。新增断点可在开发环境用 `python scripts/export_play_onnx.py --checkpoint checkpoint_新轮次.pth.tar --output iteration_新轮次` 转换，再复制两个输出文件；Windows 端无需 PyTorch。
+Windows 桌面离线版支持根目录 `models` 自动扫描：复制任意模型子目录中的 `trained.onnx` 与 `trained.onnx.json`，在“设置”中选择并新开局，选择及线程数会保存。默认附带 3250 轮和 Azalea。新增断点可在开发环境用 `python scripts/export_play_onnx.py --checkpoint checkpoint_新轮次.pth.tar --output iteration_新轮次` 转换，再复制两个输出文件；Windows 端无需 PyTorch。

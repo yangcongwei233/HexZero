@@ -17,6 +17,13 @@ from utils import dotdict
 
 
 class TrainedPlayer:
+    """将原始棋盘转换为训练网络的视角，再使用现有批量 MCTS。
+
+    网络始终认为轮到 +1 连接上下：后手输入需转置并交换颜色，输出动作
+    再变换回原棋盘。C++/Python 两种搜索均复用相同策略封装和 FP32 网络。
+    实战 temperature=0、根噪声关闭；但最大访问次数并列时仍随机选择，
+    seed 决定这次打破平局的结果。最佳走法唯一时，换种子不会强行换招。
+    """
     def __init__(self, game, net, simulations, seed, move_time_ms=0):
         self.game = game
         self.move_time_ms = move_time_ms
@@ -42,6 +49,11 @@ class TrainedPlayer:
         }
 
     def observe(self, board, player, action):
+        """双方每次真实落子都推进树根，仅保留实际落点的子树。
+
+        手动开局同样必须调用：如果仅在界面画棋子而不推进引擎，后续搜索
+        就会基于错误的局面。分析预览不调用此方法，因此不影响实战树。
+        """
         self.policy.execute_action(self.game.actionToCanonical(action, player))
         self.policy.last_move = action
 
