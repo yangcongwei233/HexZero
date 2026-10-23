@@ -17,12 +17,14 @@ from hex.HexGame import HexGame
 
 
 def position_key(moves):
+    """按双方落点集合规范化开局，并与旋转 180° 后的表示取较小者，用于去除对称重复。"""
     own, other = tuple(sorted(moves[::2])), tuple(sorted(moves[1::2]))
     rotated = tuple(sorted(120-a for a in own)), tuple(sorted(120-a for a in other))
     return min((own, other), rotated)
 
 
 def distance(a, b):
+    """计算六角网格两点距离，使用行列及其和的最大差值。"""
     ar, ac = divmod(a, 11); br, bc = divmod(b, 11)
     dr, dc = ar-br, ac-bc
     return max(abs(dr), abs(dc), abs(dr+dc))
@@ -30,6 +32,7 @@ def distance(a, b):
 
 class PositionIndex:
     def __init__(self, games, plies):
+        """从训练棋谱前缀构建按颜色区分的局面占用索引，合并 180° 对称重复。"""
         keys = sorted({position_key(moves[:plies]) for moves in games})
         self.positions = []
         for red, blue in keys:
@@ -45,6 +48,7 @@ class PositionIndex:
         self.unique_positions_up_to_rotation = len(keys)
 
     def nearest(self, moves):
+        """查询与候选开局重合最多的训练局面，返回不同落点数及对应局面，不调用模型估值。"""
         indices = moves[::2]+[a+121 for a in moves[1::2]]
         overlap = self.matrix[indices].sum(axis=0, dtype=np.uint8)
         index = int(overlap.argmax())
@@ -53,6 +57,7 @@ class PositionIndex:
 
 def sample_opening(rng, plies):
     # 为双方生成常见中央开局、邻近应手和局部后续。
+    """按局部几何约束抽取中央开局及邻近应手，返回不重复落点的指定长度前缀。"""
     first = int(rng.choice([r*11+c for r in range(3,8) for c in range(3,8)]))
     second = int(rng.choice([a for a in range(121) if 1<=distance(a,first)<=2
                             and 1<=a//11<=9 and 1<=a%11<=9]))
@@ -69,6 +74,7 @@ def sample_opening(rng, plies):
 
 
 def main():
+    """从固定候选池按训练局面距离选取独立开局，排除旧测试集近邻并保存选择依据。"""
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prefixes',type=Path,required=True)
     parser.add_argument('--previous-openings',type=Path,required=True)

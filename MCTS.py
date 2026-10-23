@@ -9,6 +9,7 @@ log = logging.getLogger(__name__)
 
 
 def arg_value(args, name, default):
+    """读取搜索配置，缺失字段使用给定默认值。"""
     try:
         return getattr(args, name)
     except (AttributeError, KeyError):
@@ -19,6 +20,7 @@ class MCTS():
     """维护逐次模拟的 MCTS 搜索树。"""
 
     def __init__(self, game, nnet, args):
+        """绑定游戏和网络，初始化局面、边访问、价值及策略缓存，并建立独立随机数生成器。"""
         self.game = game
         self.nnet = nnet
         self.args = args

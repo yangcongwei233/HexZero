@@ -20,10 +20,12 @@ ENGINE = GAME = None
 
 
 def digest(path):
+    """计算评测模型文件哈希，用于确认复盘使用的权重身份。"""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def save_json(path, value):
+    """以 UTF-8 将复盘数据写入临时文件后原子替换。"""
     path = Path(path)
     tmp = path.with_suffix('.tmp')
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -31,6 +33,7 @@ def save_json(path, value):
 
 
 def initialize(source, checkpoint, size):
+    """在本地复盘进程中限制推理线程，加载原 Azalea 参考引擎和对应规则环境。"""
     global ENGINE, GAME
     for key in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS'):
         os.environ[key] = '1'
@@ -45,6 +48,7 @@ def initialize(source, checkpoint, size):
 
 
 def label(action, n=11):
+    """将动作转为旧分析报告坐标，采用从上向下的行编号。"""
     row, col = divmod(int(action), n)
     return chr(65 + col) + str(row + 1)
 
@@ -79,6 +83,7 @@ def search(board, player, simulations, seed):
 
 
 def after_move(board, player, action, simulations, seed):
+    """评估指定动作后的局面；立即获胜直接返回规则结果，否则以新树搜索对手局面并将价值取反一次。"""
     from hex.HexLogic import has_won_bfs
     next_board, next_player = GAME.getNextState(board, player, action)
     if has_won_bfs(next_board, player):
@@ -93,6 +98,7 @@ def after_move(board, player, action, simulations, seed):
 
 
 def validated_positions(record, result):
+    """完整重放棋谱，核对模型与开局记录、合法落子和实际胜负，返回各步搜索前局面。"""
     import numpy as np
     from hex.HexLogic import has_won_bfs
     board = np.zeros((record['boardSize'], record['boardSize']), dtype=np.int8)
@@ -117,6 +123,7 @@ def validated_positions(record, result):
 
 
 def review(task):
+    """用参考引擎筛查败局分歧及短步战术，再以等预算新树深查选定候选，记录证据而不修改训练数据。"""
     from scripts.analyze_match_tactics import immediate_wins
     started = time.perf_counter()
     result, settings = task['game'], task['settings']
@@ -176,9 +183,11 @@ def review(task):
 
 
 def summarize(games):
+    """合并逐局复盘的战术事件、深查差异和按先后手划分的统计。"""
     rows = [r for g in games for r in g['positions']]
     deep = [r for r in rows if 'deep' in r]
     def seat_summary(subset):
+        """汇总一个棋色子集的开局估值和深查改善案例，保留未命中案例以免选择性统计。"""
         return dict(games=len(subset),
                     opening_value_mean=sum(g['opening_value'] for g in subset) / len(subset) if subset else None,
                     games_opening_value_below_minus_05=sum(g['opening_value'] < -.5 for g in subset),
@@ -200,6 +209,7 @@ def summarize(games):
 
 
 def main():
+    """选择指定评测中的败局，校验来源后并行复盘，原子保存单局记录及总报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--results', nargs='+', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)

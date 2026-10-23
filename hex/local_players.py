@@ -20,6 +20,7 @@ class TrainedPlayer:
     """将原棋盘转为当前方视角，使用批量 MCTS 和 FP32 网络。
     实战关闭根噪声；温度为 0 时，seed 仍影响访问次数并列的选择。"""
     def __init__(self, game, net, simulations, seed, move_time_ms=0):
+        """建立实战搜索策略，固定批量大小和探索系数，关闭根噪声并启用树复用；保存搜索次数和可选单步时限。"""
         self.game = game
         self.move_time_ms = move_time_ms
         self.policy = AzaleaStylePolicy(game, net, dotdict(
@@ -29,6 +30,7 @@ class TrainedPlayer:
         ), mcts_factory=local_mcts)
 
     def choose(self, board, player, time_limit=None):
+        """将棋盘转换为当前方规范视角并执行温度为零的搜索；返回原棋盘动作及耗时、价值、实际模拟数和停止原因。"""
         started = time.perf_counter()
         self.policy.mcts.args.searchTimeLimit = (
             self.move_time_ms / 1000 if time_limit is None else time_limit)
@@ -60,6 +62,7 @@ class ReferenceState:
 class ReferenceEnvironment:
     """适配 Azalea 的 1-based 落点和 0/1/2 棋盘；后手沿用其反对角线变换。"""
     def __init__(self, size):
+        """建立参考引擎所需的棋盘、当前方、胜负和状态缓存，初始为红方先行。"""
         self.game = HexGame(size)
         self.board = self.game.getInitBoard()
         self.player = 1
@@ -72,6 +75,7 @@ class ReferenceEnvironment:
     def state(self):
         # 一次落子前，搜索会反复读取同一局面。
         # 缓存键包含棋盘字节，直接编辑棋盘后也能正确失效。
+        """将内部 ±1 棋色转换为 Azalea 编码及从 1 开始的合法动作；同一局面复用状态对象，终局不再提供合法动作。"""
         key = self.board.tobytes(), self.player, self.winner
         if key == self._state_key:
             return self._cached_state
@@ -87,6 +91,7 @@ class ReferenceEnvironment:
         return state
 
     def step(self, move):
+        """执行参考坐标动作，转换回内部编号后更新棋盘、当前方和胜负；终局禁止继续落子。"""
         if self.winner:
             raise ValueError('Cannot move after the game ends')
         self.board, self.player = self.game.getNextState(self.board, self.player, int(move) - 1)
@@ -94,14 +99,17 @@ class ReferenceEnvironment:
         self.winner = self.player * result if result else None
 
     def snapshot(self):
+        """保存棋盘副本、当前方和胜负，供一批搜索路径开始前回溯使用。"""
         self._snapshot = self.board.copy(), self.player, self.winner
 
     def restore(self):
+        """从最近快照恢复环境，复制棋盘以避免后续模拟修改快照本身。"""
         board, self.player, self.winner = self._snapshot
         self.board = board.copy()
 
     @staticmethod
     def flip_player_board_moves(board, moves):
+        """同时变换棋盘棋色和合法动作，将后手转为 Azalea 的先手视角；保留补零动作编码。"""
         board, moves = np.asarray(board), np.asarray(moves)
         if board.ndim == 2:
             board, moves = board[None], moves[None]
@@ -115,11 +123,13 @@ class ReferenceEnvironment:
     @staticmethod
     def random_reflect(board, moves=None, rng=None):
         # 原参考实现的此操作同样为空。
+        """保持参考实现的恒等增强行为，原样返回棋盘及可选动作数组。"""
         return (board, moves) if moves is not None else board
 
 
 class AzaleaReference:
     def __init__(self, source_dir, checkpoint, board_size, device):
+        """从独立命名空间加载参考源码及权重，校验棋盘和网络类型；仅导入推理所需依赖并设置评估模式。"""
         import torch
         source = Path(source_dir).resolve() / 'azalea'
         if not (source / 'policy.py').is_file():
@@ -145,6 +155,7 @@ class AzaleaReference:
         self.board_size = board_size
 
     def player(self, simulations, seed):
+        """共享只读网络，为新参考玩家建立独立随机数、搜索树和规则环境，关闭采样及根噪声。"""
         policy = copy.copy(self.prototype)
         policy.settings = {'move_sampling': False, 'move_exploration': False}
         policy.rng = np.random.RandomState(seed)
@@ -155,9 +166,11 @@ class AzaleaReference:
 
 class ReferencePlayer:
     def __init__(self, policy, environment):
+        """组合参考策略和规则环境，提供与训练模型相同的对弈接口。"""
         self.policy, self.environment = policy, environment
 
     def choose(self, board, player, time_limit=None):
+        """先校验外部棋盘与参考环境同步，再执行搜索；返回内部动作编号及搜索指标，限时模式要求后端明确支持。"""
         if player != self.environment.player or not np.array_equal(board, self.environment.board):
             raise RuntimeError('Azalea 棋盘状态不同步')
         started = time.perf_counter()
@@ -172,6 +185,7 @@ class ReferencePlayer:
                                'searchStopReason': info.get('metrics', {}).get('stop_reason', 'simulation_limit')}
 
     def observe(self, board, player, action):
+        """将真实落子同步到参考搜索树及环境，核对执行前状态，避免手工开局或悔棋后沿用错树。"""
         if player != self.environment.player or not np.array_equal(board, self.environment.board):
             raise RuntimeError('Azalea 棋盘状态不同步')
         self.policy.execute_action(int(action) + 1, self.environment.state.legal_moves)

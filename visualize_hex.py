@@ -21,10 +21,12 @@ COLORS = {
 
 
 def hex_center(row, col, y_scale):
+    """将棋盘行列转换为倾斜六角网格的绘图中心坐标。"""
     return col + row * 0.5, -row * y_scale
 
 
 def draw_goal_edges(ax, n, radius, y_scale):
+    """在绘图坐标中绘制双方目标边，沿用该旧可视化工具的配色。"""
     top_left = hex_center(0, 0, y_scale)
     top_right = hex_center(0, n - 1, y_scale)
     bottom_left = hex_center(n - 1, 0, y_scale)
@@ -45,6 +47,7 @@ def draw_goal_edges(ax, n, radius, y_scale):
 
 
 def draw_board(board, path, last_move=None, move_number=0, winner=None):
+    """绘制指定局面、上一手和结果标记，保存静态图片后释放绘图资源。"""
     n = board.shape[0]
     fig, ax = plt.subplots(figsize=(max(5, n * 0.8), max(4, n * 0.7)))
     ax.set_aspect("equal")
@@ -103,6 +106,7 @@ def draw_board(board, path, last_move=None, move_number=0, winner=None):
 
 
 def play_game(game, nnet, num_mcts_sims):
+    """使用经典 MCTS 完成一局模型自博弈，保存每步棋盘历史供逐帧绘图。"""
     args = dotdict({"numMCTSSims": num_mcts_sims, "cpuct": 1})
     board = game.getInitBoard()
     player = 1
@@ -130,6 +134,7 @@ def play_game(game, nnet, num_mcts_sims):
 
 
 def main():
+    """加载指定模型或初始化网络，执行一局并导出棋盘帧及动画。"""
     parser = argparse.ArgumentParser(description="Visualize a Hex model self-play game.")
     parser.add_argument("--board-size", type=int, default=5)
     parser.add_argument("--checkpoint", default=None)

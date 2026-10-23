@@ -8,6 +8,7 @@ from .model_manifest import load_manifest
 
 
 def default_threads():
+    """返回不超过 4 个的默认 CPU 推理线程数；无法识别处理器数量时使用 1 个。"""
     return min(4, os.cpu_count() or 1)
 
 
@@ -24,6 +25,7 @@ def validate_trained_network(net):
 
 class OnnxNetwork:
     def __init__(self, model, kind, threads=None):
+        """校验模型清单，按线程数建立开启图优化的 CPU 会话，并读取网络尺寸及输入输出约定。"""
         import onnxruntime as ort
         self.manifest = load_manifest(model, kind)
         self.board_size = self.manifest['board_size']
@@ -45,9 +47,11 @@ class OnnxNetwork:
         self.checkpoint_metadata = self.manifest.get('metadata', {}).copy()
 
     def eval(self):
+        """提供与训练网络一致的评估模式接口；ONNX 会话本身已是推理模式。"""
         return self
 
     def _board(self, boards, dtype):
+        """将输入转成指定类型的连续三维批量棋盘，校验批次非空及棋盘尺寸；单棋盘需由 predict 包装。"""
         boards = np.ascontiguousarray(boards, dtype=dtype)
         n = self.board_size
         if boards.ndim != 3 or boards.shape[1:] != (n, n) or len(boards) == 0:
@@ -55,10 +59,12 @@ class OnnxNetwork:
         return boards
 
     def predict(self, board):
+        """包装单棋盘预测，返回一份策略分布和价值，复用批量推理入口。"""
         policies, values = self.predict_batch([board])
         return policies[0], values[0]
 
     def predict_batch(self, boards):
+        """批量执行本项目模型的策略/价值预测，并将网络输出转换为搜索使用的概率及价值数组。"""
         if self.kind != 'trained':
             raise ValueError('Azalea 推理必须同时提供合法落点')
         boards = self._board(boards, np.float32)
@@ -66,6 +72,7 @@ class OnnxNetwork:
         return np.exp(policy), value.reshape(-1, 1)
 
     def run(self, batch):
+        """按 Azalea 网络接口接收棋盘和合法动作，调用参考 ONNX 模型并返回命名结果。"""
         if self.kind != 'azalea':
             raise ValueError('此接口仅供 Azalea 搜索使用')
         board = self._board(batch['board'], np.int32)
@@ -78,6 +85,7 @@ class OnnxNetwork:
 
 class OnnxReference:
     def __init__(self, checkpoint, board_size, threads=None):
+        """加载参考 ONNX 网络及导出搜索设置，检查参考模型棋盘尺寸。"""
         from .azalea_cpu.policy import Policy
         self.checkpoint = Path(checkpoint).resolve()
         net = OnnxNetwork(self.checkpoint, 'azalea', threads)
@@ -87,6 +95,7 @@ class OnnxReference:
         self.prototype = Policy(net, net.manifest['search'])
 
     def player(self, simulations, seed):
+        """共享参考网络，为新对局建立独立策略、随机数和参考环境。"""
         import copy
         from .local_players import ReferenceEnvironment, ReferencePlayer
         policy = copy.copy(self.prototype)

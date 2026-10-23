@@ -13,11 +13,13 @@ from hex.HexLogic import has_won_bfs, has_won_fast
 
 
 def label(action, size):
+    """将动作编号转换为旧分析报告的字母列、从上往下编号的行坐标，区别于比赛 TXT 坐标。"""
     row, col = divmod(int(action), size)
     return chr(65 + col) + str(row + 1)
 
 
 def immediate_wins(board, side, verify=False):
+    """逐一试放合法落点寻找立即连通的动作，检查后恢复空位；可额外用独立 BFS 复核。"""
     found = []
     for action in np.flatnonzero(board.ravel() == 0):
         board.ravel()[action] = side
@@ -34,6 +36,7 @@ def winning_forks(board, side, opponent_wins):
     # 对手一步无法同时占据两个不同的制胜点。
     # 若对手不能立即获胜，则可证明我方下一步必胜。
     # 对手仅有一个立即获胜点时，我方必须先占据它。
+    """枚举能制造两个立即获胜点的落子，并排除对手抢先获胜的情况，返回局部必胜证明。"""
     if len(opponent_wins) >= 2:
         return []
     candidates = opponent_wins or np.flatnonzero(board.ravel() == 0)
@@ -51,6 +54,7 @@ def winning_forks(board, side, opponent_wins):
 
 
 def analyze(record_path, scan_forks):
+    """重放一份棋谱，统计漏胜、漏唯一挡点和可选双威胁，返回逐手事件及汇总。"""
     game = json.loads(record_path.read_text())
     n = game['boardSize']
     board = np.zeros((n, n), dtype=np.int8)
@@ -88,6 +92,7 @@ def analyze(record_path, scan_forks):
 
 
 def main():
+    """读取评测结果引用的棋谱，批量执行精确短步战术检查并保存报告，不进行网络训练。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('results', type=Path)
     parser.add_argument('--output', type=Path, required=True)

@@ -28,6 +28,7 @@ class SearchTree:
     total_value 采用当前节点执棋方视角；prior_prob 采用父节点执棋方视角。"""
 
     def __init__(self):
+        """分配初始树数组并设定存储上限，保存游戏节点数、父子关系和搜索统计。"""
         self.num_nodes = 0
         self.root_id: int32 = 0
 
@@ -189,12 +190,14 @@ class SearchNode:
     """搜索节点及其 MCTS 统计的访问接口。"""
 
     def __init__(self, tree: SearchTree, node_id: int) -> None:
+        """建立树及节点编号的轻量访问包装，不复制底层统计数组。"""
         assert node_id >= 0, 'illegal node'
         assert node_id < tree.num_nodes, 'illegal node'
         self.tree = tree
         self._id = node_id
 
     def __eq__(self, other: 'SearchNode') -> bool:
+        """比较节点是否指向同一搜索树中的同一编号。"""
         return self.id == other.id
 
     @property
@@ -230,26 +233,32 @@ class SearchNode:
 
     @property
     def num_children(self) -> int32:
+        """读取该节点子节点数；负值表示未评估，零表示终局。"""
         return self.tree.num_children[self.id]
 
     @property
     def num_visits(self) -> float32:
+        """读取底层树数组中的节点访问次数。"""
         return self.tree.num_visits[self.id]
 
     @num_visits.setter
     def num_visits(self, visits: float32) -> None:
+        """直接更新节点访问次数，保持与底层树数组一致。"""
         self.tree.num_visits[self.id] = visits
     
     @property
     def total_value(self) -> float32:
+        """读取节点自身执棋方视角的累计价值。"""
         return self.tree.total_value[self.id]
 
     @total_value.setter
     def total_value(self, value: float32) -> None:
+        """直接更新节点自身执棋方视角的累计价值。"""
         self.tree.total_value[self.id] = value
     
     @property
     def prior_prob(self):
+        """读取父节点选择该动作的先验概率。"""
         return self.tree.prior_prob[self.id]
 
     def is_evaluated(self) -> bool:
@@ -300,6 +309,7 @@ class ForwardSearchIterator:
     """搜索时同步推进游戏状态和树节点。"""
 
     def __init__(self, node: SearchNode, game: SearchableEnv) -> None:
+        """绑定起始节点与可回溯游戏环境，供后续同步推进；环境快照由调用方事先保存。"""
         self._game = game
         self._node = node
         if DEBUG:
@@ -359,6 +369,7 @@ def print_tree(tree: SearchTree) -> None:
 
 
 def format_tree_lines(tree: SearchTree) -> Generator[str, None, None]:
+    """生成整棵搜索树的逐行文本，返回可供打印的格式化结果。"""
     yield format_node(tree.root)
     for line in format_subtree_lines(tree, tree.root, 1, []):
         yield line
@@ -366,6 +377,7 @@ def format_tree_lines(tree: SearchTree) -> Generator[str, None, None]:
 
 def format_subtree_lines(tree: SearchTree, node: SearchNode, indent: int,
                          last: List[bool]) -> Generator[str, None, None]:
+    """递归格式化指定节点的后续分支，附带层级缩进和节点信息。"""
     indent += 1
     for i in range(node.num_children):
         child = node.child(i)
@@ -380,6 +392,7 @@ def format_subtree_lines(tree: SearchTree, node: SearchNode, indent: int,
 
 
 def format_tree_prefix(last: List[bool]) -> str:
+    """按分支层级生成树状连接线前缀，区分末尾与中间子节点。"""
     if not last:
         return ''
 
@@ -389,6 +402,7 @@ def format_tree_prefix(last: List[bool]) -> str:
 
 
 def format_node(node: SearchNode, move_id: Optional[int] = None) -> str:
+    """将节点编号、动作和价值/访问统计格式化为单行文本。"""
     num_visits = node.num_visits
     value = node.total_value / max(1, num_visits)
     prior = node.prior_prob

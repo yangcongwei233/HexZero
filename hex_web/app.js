@@ -1,5 +1,7 @@
+// 按元素标识读取 DOM 节点，供界面渲染和事件处理复用。
 const $ = id => document.getElementById(id);
 const searchPresets = [800, 1200, 2000, 3200, 6400, 12800, 51200];
+// 将合法搜索档位写入选择框；旧会话的其他预算不强行改写。
 function selectSearchPreset(value) {
   $('mctsSims').value = String(searchPresets.includes(Number(value)) ? Number(value) : 3200);
 }
@@ -8,24 +10,34 @@ let busyTask = null, analysisKey = null, previewIndex = null, previewDepth = 0;
 let analysisPaused = false, pendingAnalysis = null;
 let metadataFormKey = null, annotationFormKey = null;
 let modelCatalogBusy = false, clockPollBusy = false;
+// 判断棋钟是否允许继续行动，禁用计时或尚未启动时仍可走棋。
 const clockPlayable = () => !state?.clock?.enabled || !state.clock.started || state.clock.active !== null;
+// 把后端搜索停止原因转换为中文状态提示。
 const stopReason = reason => ({time_budget:'达到时间预算',node_limit:'达到内存预算',simulation_limit:'达到次数上限'}[reason] || '搜索结束');
 const names = {human: '你', trained: '训练模型', azalea: 'Azalea 参考模型', record: '棋谱'};
 const svgNS = 'http://www.w3.org/2000/svg';
+// 将内部行列转换成 A1 位于左下的比赛显示坐标。
 const coord = (row, col) => `${String.fromCharCode(65 + col)}${(state?.boardSize || 11) - row}`;
+// 根据动作来源显示人工开局或控制该方的引擎名称。
 const moveName = move => move.source === 'manual_opening' ? '手动开局' : names[move.actor];
+// 格式化带符号的价值估计，缺失值显示为未搜索。
 const valueText = value => value === null ? '未搜索' : `${value >= 0 ? '+' : ''}${value.toFixed(3)}`;
+// 将价值估计划分为 −2～2 的评注等级，仅用于局面说明。
 const markText = value => value === null ? '未评价' : value < -.6 ? '−2 大劣' : value < -.2 ? '−1 小劣' : value <= .2 ? '0 一般' : value <= .6 ? '+1 小好' : '+2 大好';
+// 取得当前候选在选定深度以内的主变化，不修改真实棋谱。
 const previewMoves = () => state?.analysis?.candidates[previewIndex]?.pv.slice(0, previewDepth) || [];
+// 创建指定类型的 SVG 元素并填写属性及可选文本。
 function svg(tag, attrs, text) {
   const el = document.createElementNS(svgNS, tag);
   Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
   if (text !== undefined) el.textContent = text;
   return el;
 }
+// 按真实局面绘制目标边、棋子、候选和预览；点击处理仍由统一落子入口校验。
 function drawBoard() {
   if (!state) return;
   const n = state.boardSize, r = 21, dx = Math.sqrt(3) * 23, dy = 34.5, pad = 52;
+  // 将棋盘行列转换为倾斜六角网格的 SVG 中心位置。
   const center = (row, col) => [pad + dx * (col + row / 2), pad + dy * row];
   const board = $('board');
   board.setAttribute('viewBox', `0 0 ${2 * pad + 1.5 * dx * (n - 1)} ${2 * pad + dy * (n - 1)}`);
@@ -62,6 +74,7 @@ function drawBoard() {
   }
   if (state.winningPath.length) board.append(svg('polyline', {class: 'winning-line', points: state.winningPath.map(([r,c]) => center(r,c).join(',')).join(' ')}));
 }
+// 结合忙碌、回放、开局和模型状态更新可操作控件，避免并发修改棋局。
 function updateControls() {
   const stopped = !state || !!state.winner;
   $('cpuThreads').disabled = busy || autoplay;
@@ -97,12 +110,14 @@ function updateControls() {
   $('resumePlay').disabled = busy;
   document.body.classList.toggle('thinking', busy);
 }
+// 切换候选与预览深度并重绘；窄屏时把预览提示滚动到可见位置。
 function selectPreview(index, depth) {
   previewIndex = index; previewDepth = depth; render();
   if (window.matchMedia('(max-width:680px)').matches) {
     $('previewBanner').scrollIntoView({behavior:'smooth', block:'start'});
   }
 }
+// 渲染候选访问、价值和已搜索主变化，分析版本变化时清除旧预览。
 function renderAnalysis() {
   const analysis = state.analysis;
   const key = analysis ? `${state.id}:${analysis.revision}:${analysis.engine}` : null;
@@ -144,6 +159,7 @@ function renderAnalysis() {
     $('candidates').append(li);
   }
 }
+// 根据最新会话快照刷新对局状态、棋谱、分析和棋钟，不在浏览器中运行模型。
 function render() {
   if (!state) return;
   $('title').textContent = `Hex ${state.boardSize} × ${state.boardSize}`;
@@ -182,9 +198,11 @@ function render() {
   if (!state.replayMode) $('moves').scrollTop = $('moves').scrollHeight;
   renderRecord(); renderAnalysis(); updateControls(); drawBoard(); renderClock();
 }
+// 从编辑表单读取比赛信息，作为保存或导出请求的元数据。
 function recordMetadata() {
   return {redTeam:$('redTeam').value,blueTeam:$('blueTeam').value,result:$('recordResult').value,timePlace:$('timePlace').value,event:$('eventName').value};
 }
+// 按记录版本同步比赛信息、逐手评注和回放游标，避免重绘覆盖正在编辑的字段。
 function renderRecord() {
   const key = `${state.id}:${JSON.stringify(state.recordMetadata)}`;
   if (metadataFormKey !== key) {
@@ -204,6 +222,7 @@ function renderRecord() {
   }
   $('annotationTitle').textContent = move ? `第 ${move.move} 手 ${move.player === 1 ? 'R' : 'B'}(${coord(move.row,move.col)}) · 评注` : '逐手评注（先选择一手）';
 }
+// 发送无缓存 JSON 请求，将后端错误转为异常，并记录棋钟快照接收时刻。
 async function request(path, body) {
   const res = await fetch(path, body === undefined ? {cache:'no-store'} : {method:'POST', cache:'no-store', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   const data = await res.json();
@@ -212,12 +231,14 @@ async function request(path, body) {
   if (data.session?.clock) data.session.clockReceivedAt = performance.now();
   return data;
 }
+// 检查自动对弈和当前回合条件，为下一次模型落子安排定时任务。
 function schedule() {
   clearTimeout(timer);
   if (!busy && !analysisPaused && state && !state.replayMode && !state.winner && !state.openingSetup && clockPlayable() && state.currentKind !== 'human' && (state.mode === 'human' || autoplay)) {
     timer = setTimeout(() => action('/api/step'), 220);
   }
 }
+// 统一发送带会话版本的操作，更新忙碌状态和返回快照，处理排队分析及自动续走。
 async function action(path, extra = {}) {
   if (busy) return;
   let succeeded = false;
@@ -244,11 +265,13 @@ async function action(path, extra = {}) {
   }
   return succeeded;
 }
+// 在允许人工落子的状态下提交指定格点，实际合法性由后端再校验。
 function playMove(row,col) {
   if (!state || (!state.openingSetup && !clockPlayable()) || busy || state.winner || state.replayMode || previewMoves().length || (!state.openingSetup && clockPlayable() && state.currentKind !== 'human') || state.board[row][col]) return;
   analysisPaused = false;
   action('/api/move', {row,col});
 }
+// 读取模式、先后手和搜索设置，清理旧自动对弈状态并请求普通或手动开局。
 function startNewGame(manualOpening) {
   const mctsSims = Number($('mctsSims').value), seed = Number($('seed').value);
   if (!searchPresets.includes(mctsSims) || !Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
@@ -280,6 +303,7 @@ $('saveGame').addEventListener('click', async () => {
   link.download = `hex-${state.id}.json`; link.click();
 });
 $('showNumbers').addEventListener('change', drawBoard);
+// 停止自动对弈和预览，向后端请求回放到指定手数。
 function seekRecord(ply) {
   if (busy || autoplay || !state) return;
   analysisPaused=true;clearTimeout(timer);action('/api/seek',{ply});
@@ -317,6 +341,7 @@ $('exportTxt').addEventListener('click',async()=>{
     a.href=url;a.download=match?decodeURIComponent(match[1]):'hex-match.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(error){$('notice').textContent=error.message;}
 });
+// 根据后端可配置范围和当前值更新线程控件。
 function renderThreads() {
   const info = config?.inference;
   $('cpuControls').hidden = !info?.configurable;
@@ -329,6 +354,7 @@ function renderThreads() {
   $('cpuThreads').value = Math.max(info.minThreads, info.threads);
   $('threadStatus').textContent = `当前 ${info.threads} 线程 · 优化 CPU 推理`;
 }
+// 展示当前训练模型、参考模型及推理设置，供用户确认正在使用的权重。
 function renderModelInfo() {
   $('device').textContent = config.device.toUpperCase();
   $('trainedName').textContent = config.models.trained.name;
@@ -341,6 +367,7 @@ function renderModelInfo() {
   $('mode').querySelector('option[value=azalea]').disabled = !config.referenceAvailable;
   $('analysisEngine').querySelector('option[value=azalea]').disabled = !config.referenceAvailable;
 }
+// 渲染可选模型与扫描错误，保留当前选择并更新换模按钮状态。
 function renderModelLibrary() {
   const library = config?.modelLibrary;
   $('modelControls').hidden = !library;
@@ -365,6 +392,7 @@ function renderModelLibrary() {
   $('modelStatus').title=library.directory;
   updateControls();
 }
+// 刷新目录和后端配置，处理其他窗口已换模的情况，避免继续引用旧会话。
 async function refreshModelLibrary() {
   if (busy || autoplay || modelCatalogBusy || !config?.modelLibrary) return;
   modelCatalogBusy=true;updateControls();
@@ -425,6 +453,7 @@ $('applyThreads').addEventListener('click', async () => {
   } catch (error) { $('status').textContent = '本地服务连接失败'; $('notice').textContent = error.message; }
 })();
 
+// 按后端余额和本地经过时间绘制倒计时；超时裁定仍由后端负责。
 function renderClock() {
   const clock=state?.clock;
   $('clockPanel').hidden=!clock?.enabled;

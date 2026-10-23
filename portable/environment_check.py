@@ -10,6 +10,7 @@ import time
 
 
 def check_environment(root, threads, model=None):
+    """在隔离进程中验证解释器、原生库、模型和真实搜索，包括短生命周期线程路径；结果仅写入本地环境报告。"""
     root = Path(root)
     report = dict(status='checking', checked_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                   system=platform.system(), release=platform.release(), machine=platform.machine(),
@@ -68,6 +69,7 @@ def check_environment(root, threads, model=None):
         from utils import dotdict
         class CheckNet:
             def predict_batch(self, boards):
+                """为搜索库环境验证返回固定均匀策略和零价值，隔离模型计算对兼容检查的影响。"""
                 count = len(boards)
                 return np.full((count, 121), 1 / 121, np.float32), np.zeros((count, 1), np.float32)
         search = local_mcts(game, CheckNet(), dotdict(numMCTSSims=65, mctsBatchSize=32,
@@ -111,6 +113,7 @@ def check_environment(root, threads, model=None):
             if app.reference is None:
                 raise RuntimeError(app.reference_error)
             def request(fn, *args, **kwargs):
+                """在线程池中执行一次调用并等待退出，验证原生库在线程创建和销毁场景下是否安全。"""
                 with ThreadPoolExecutor(1) as worker:
                     return worker.submit(fn, *args, **kwargs).result()
             request(app.new_session, mode='human', mine=1, simulations=65)

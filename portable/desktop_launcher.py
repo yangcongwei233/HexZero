@@ -24,6 +24,7 @@ if sys.platform == 'win32':
 
 
 def main():
+    """设置便携运行目录和本地日志，识别公开版或比赛版配置后启动桌面程序，异常时保留可诊断信息。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--check-environment', action='store_true')

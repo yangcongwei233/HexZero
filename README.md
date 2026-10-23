@@ -78,27 +78,89 @@ models/iteration_轮次/trained.onnx.json
 
 ## 训练
 
+下面按已选定的 **3250 完整断点**及续训记录说明实际配置，而非脚本默认值。该模型出自同一条从零开始的训练：1～800 轮为纯自博弈，从第 801 轮起混入约 10% 教师样本；后续总目标延长到 5000 轮。目标轮数不代表已完成轮数。
+
+### 实际参数与取舍
+
+| 参数 | 实际选择 | 用途与取舍 |
+| --- | --- | --- |
+| 棋盘 `board-size` | 11 | 与比赛规则一致；直接在完整棋盘上学习，初期难度高于小棋盘 |
+| 每轮自博弈 `num-eps` | 128 局 | 每轮补充足量新经验；增大可降低单轮样本波动，也会拉长模型更新间隔 |
+| 每步搜索 `num-mcts-sims` | 800 | 在搜索标签质量和采集速度之间折中；与桌面对弈的搜索上限独立 |
+| 搜索后端 `mcts-backend` | `azalea` | 使用本项目批量搜索实现，便于批量网络评估 |
+| 搜索批量 `mcts-batch-size` | 32 | 合并网络调用；批次越大，同批路径越依赖尚未回传的统计，虚拟访问用于分散探索 |
+| 探索系数 `cpuct` | 0.5 | 平衡已搜索价值与策略先验；增大会更偏向探索，不能单凭数值判断棋力 |
+| 搜索树复用 `reuse-search-tree` | 开启 | 保留实际落子对应子树，节省重复计算；后续搜索会继承已有访问统计 |
+| 温度阈值 `temp-threshold` | 16 | 前 15 手温度为 1，按访问分布采样；第 16 手起为 0，偏向最优访问动作，减少后段随机落子 |
+| 根噪声 `root-dirichlet-noise` | 开启 | 自博弈扩大探索范围；评估关闭，避免用随机扰动衡量新旧模型 |
+| 噪声形状 `dirichlet-alpha` | 0.03 | 小参数产生较集中的随机探索方向；过度集中也可能反复探索弱着 |
+| 噪声占比 `dirichlet-fraction` | 0.25 | 根先验按 75% 网络策略与 25% 随机分布混合，兼顾已有知识和探索 |
+| 自博弈并行 `parallel-self-play` / `num-workers` | 开启 / 12 | 并行生成独立棋局；继续增多会增加进程、模型副本及调度开销 |
+| 任务粒度 `games-per-worker` | 每任务 1 局 | 长短棋局可动态分配，减少尾部等待；每任务仍需独立加载推理快照，不等于模型跨任务常驻 |
+| 工作线程 `selfplay-threads` / `arena-threads` | 各 1 | 限制每进程的 CPU 数值计算线程，减少多进程争抢；不是整机只使用一个线程 |
+| 判胜 `win-check-mode` | `numba` | 编译六邻接遍历，保留 BFS 回退；首次运行需要预热 |
+| 经验池 `replay-buffer-size` | 100000 条 | FIFO 保留近期经验；容量越大越稳定，但旧策略数据滞留更久 |
+| 单轮收集上限 `maxlen-of-queue` | 100000 条 | 限制单轮采集队列，避免异常局数造成无限增长 |
+| 历史轮数 `history-iters` | 元数据为 20 | 本次已启用 FIFO，实际保留范围由 100000 条容量控制，不能再按 20 轮相乘 |
+| 数据增强 | 原局面及旋转 180° | 每步生成两份合法对称样本；不使用会改变六邻接关系的单轴镜像 |
+| 残差主干 `num-res-blocks` / `num_channels` | 6 块 / 64 通道 | 保留局部连接表达能力，同时控制推理开销；通道数为网络配置值 |
+| 输入编码 | 己方、对方、常数共 3 通道 | 显式表达规范棋盘，后手先转置并换色，减少网络自行学习视角差异的负担 |
+| 策略分支 `policy_channels` | 4 通道 | 压缩空间特征后输出全棋盘动作概率；更宽会增加参数与计算 |
+| 价值分支 `value-channels` / `value_hidden` | 8 通道 / 128 | 给整局胜负估计更多表达容量；代价是比更窄价值头增加计算，不能保证价值误差更低 |
+| 价值归一化 `disable_value_bn` | `false`，保留 BN | 使用批归一化稳定特征尺度；推理依赖训练累计的统计量 |
+| 优化器 | Adam，β=(0.9, 0.999)，ε=1e-8 | 逐参数自适应步长，便于应对变化的自博弈数据；额外保存一、二阶矩状态 |
+| 学习率 `learning-rate` | 0.001，固定 | 配置简单且续训连续；当前没有自动衰减，后期仍可能波动 |
+| 权重衰减 | 0 | 沿用实际 Adam 配置，不额外施加 L2；也意味着没有这项显式正则约束 |
+| 训练批量 `batch-size` | 128 | 平滑单批梯度并提高批量计算效率；与搜索批量 32 是不同参数 |
+| 每轮训练 `epochs` | 3 | 每个 epoch 按经验池规模安排批次，但实际是有放回抽样，不保证逐条遍历；增加会提高复用率并可能过拟合旧数据 |
+| 损失 | 策略交叉熵 + 价值均方误差，各权重 1 | 同时学习落子分布与终局结果；两项数值尺度不同，不能直接用大小判断谁学得更好 |
+| 教师混入 `teacher-fraction` | 第 801 轮起约 0.1 | 每批约 10% 教师、90% 自博弈，补充参考策略又保留自主改进；教师集独立保存，不挤占 FIFO 容量 |
+| 教师目标 | 原始搜索访问分布 + 终局胜负 | 学习搜索后的软策略和实际结果；价值标签不是教师网络的中间估值 |
+| 新旧模型评估 `arena-compare` / `arena-workers` | 40 局 / 12 进程 | 双方各先手 20 局；并行缩短等待，但样本量仍有限 |
+| 接受门槛 `update-threshold` | 0.55 | 无平局时至少 22/40 胜才接受候选；未通过则恢复旧权重和优化器，可减少退步但不保证对外棋力单调提高 |
+| 人工先验 | 开局库关闭、战术优先关闭、`heuristic-prior-weight=0` | 正式训练不强制人工走法，避免启发式覆盖搜索目标；一步胜负仍由搜索中的规则判定 |
+| 随机种子 `seed` | 3134582485 | 派生对局种子便于复现；正常续训恢复完整随机状态，而非每段重新从该种子开始 |
+| 保存 `checkpoint-interval` / `keep-checkpoints` | 每 10 轮 / 最近 3 对 | 减少写盘与空间占用；正常结束也保存，意外中断可能丢失最近未保存的轮次 |
+| 日志与诊断 | TensorBoard 开启；自博弈 JSONL 开启；完整策略 JSONL 关闭；额外价值调试关闭 | 保留曲线和落子记录，减少逐手大数组及额外诊断开销；训练目标仍保存在经验快照中 |
+
+温度为零的自博弈阶段，当前实现保存的是选定动作的一热策略目标；前 15 手保存采样前的温度策略分布。教师样本则保留归一化的原始访问分布。满经验池时，每轮约执行 `3 × ceil(100000 / 128) = 2346` 次梯度更新；评估拒绝后日志步数继续累计，所以不能把日志步数直接理解为当前权重保留的更新次数。
+
+### 启动与续训
+
+下面复用实际算法参数启动纯自博弈阶段。目录为通用示例；设备选项按部署环境配置，这里不披露实际设备配置。
+
 ```bash
 python -m pip install -r requirements.txt
 python main_hex.py --board-size 11 --mcts-backend azalea \
-  --num-iters 100 --num-eps 64 --num-mcts-sims 400 \
-  --mcts-batch-size 32 --reuse-search-tree \
-  --root-dirichlet-noise --dirichlet-alpha 0.03 \
-  --checkpoint-dir temp/hex11 --tensorboard
+  --num-iters 800 --num-eps 128 --num-mcts-sims 800 \
+  --mcts-batch-size 32 --cpuct 0.5 --reuse-search-tree \
+  --temp-threshold 16 --root-dirichlet-noise \
+  --dirichlet-alpha 0.03 --dirichlet-fraction 0.25 \
+  --parallel-self-play --num-workers 12 --games-per-worker 1 \
+  --selfplay-threads 1 --arena-workers 12 --arena-threads 1 \
+  --arena-compare 40 --update-threshold 0.55 --win-check-mode numba \
+  --replay-buffer-size 100000 --maxlen-of-queue 100000 --history-iters 20 \
+  --num-res-blocks 6 --value-channels 8 \
+  --epochs 3 --batch-size 128 --learning-rate 0.001 \
+  --no-use-opening-book --no-use-tactical-check --heuristic-prior-weight 0 \
+  --seed 3134582485 --checkpoint-interval 10 --keep-checkpoints 3 \
+  --checkpoint-dir temp/hex11 --tensorboard --save-selfplay-jsonl
 ```
 
-以上是启动示例。自博弈可加 `--parallel-self-play --num-workers 12`，评估可加 `--arena-workers 12`；两阶段顺序运行，进程数按机器配置调整。GPU 自博弈需显式指定 `--selfplay-device cuda`。
+网络固定配置中的 `num_channels=64`、`policy_channels=4`、`value_hidden=128` 及 Adam 参数见 `hex/pytorch/NNet.py`；其余均在命令中显式指定或由表中说明。自博弈、网络更新和评估依次执行，12 个自博弈进程和 12 个评估进程并非同时运行。
 
-续训和查看曲线：
+第 800 轮完成且教师集校验通过后，继续 4200 轮可到目标 5000。教师文件需提前采集并验证，示例路径不代表仓库附带该数据：
 
 ```bash
-python main_hex.py --board-size 11 --checkpoint-dir temp/hex11 --load-model --num-iters 200
+python main_hex.py --board-size 11 --checkpoint-dir temp/hex11 \
+  --load-model --num-iters 4200 \
+  --teacher-data data/teacher.npz --teacher-fraction 0.1 --tensorboard --save-selfplay-jsonl
 tensorboard --logdir temp/hex11/tensorboard
 ```
 
-`--num-iters` 是总轮数上限。默认每 10 轮及正常结束时保存，只保留最近 3 对新建模型/经验池快照；`latest.json` 指向最新完整快照。其他参数见 `python main_hex.py --help`。
+**`--num-iters` 是本次执行轮数。** 例如从完整 3250 断点继续到 5000，应填 `1750`；3250 断点记录的续训段为从 3001 开始执行 2000 轮，不能误读为总上限 2000。续训需要模型与经验池配对快照，`latest.json` 指向最新完整快照；普通 ONNX 导出只供推理。
 
-教师数据为可选项：`--teacher-data teacher.npz --teacher-fraction 0.1` 表示约 10% 教师样本、90% 自博弈。数据采集和评估工具在 `scripts/`，不随桌面程序运行。
+正常续训继承断点中的网络、搜索、优化器和教师设置。不要使用 `--fresh-replay` 或重新指定种子，除非有意丢弃经验或更改随机过程；日志开关在新命令中显式启用。其他选项见 `python main_hex.py --help`。
 
 ## 搜索与推理
 

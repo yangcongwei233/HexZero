@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    """选择本机或交叉编译器，按通用指令集和严格浮点参数编译搜索库，并保存 ABI、编译命令及内容哈希。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--windows', action='store_true')
     parser.add_argument('--compiler')

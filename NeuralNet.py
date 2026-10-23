@@ -2,6 +2,7 @@ class NeuralNet():
     """策略/价值网络接口，输入统一为当前执棋方视角的棋盘。"""
 
     def __init__(self, game):
+        """网络接口的初始化占位，具体结构和优化器由子类建立。"""
         pass
 
     def train(self, examples):

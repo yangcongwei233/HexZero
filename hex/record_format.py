@@ -12,17 +12,20 @@ MAX_JSON_RECORD_BYTES = 8 * 1024 * 1024
 
 
 def coordinate(action, size=11):
+    """将内部动作编号转换为比赛坐标，A1 位于左下，纵坐标与内部行号方向相反。"""
     row, col = divmod(int(action), size)
     return f'{chr(65 + col)},{size - row}'
 
 
 def mark_from_value(value):
+    """将当前方价值估计划分为 −2～2 的局面等级；等级用于评注，不表示校准胜率。"""
     if not math.isfinite(value) or not -1.00001 <= value <= 1.00001:
         raise ValueError('模型估值无效')
     return -2 if value < -.6 else -1 if value < -.2 else 0 if value <= .2 else 1 if value <= .6 else 2
 
 
 def metadata_checked(meta):
+    """规范并校验队名、结果、时间地点和赛事字段，限制长度及非法定界符，返回独立元数据。"""
     if not isinstance(meta, dict):
         raise ValueError('参赛信息必须是对象')
     result = {}
@@ -47,6 +50,7 @@ def metadata_checked(meta):
 
 
 def validate_moves(moves, meta):
+    """从空棋盘逐手重放，校验颜色轮换、落点、注释及终局边界；返回标准化棋谱、实际胜者和声明结果警告。"""
     if not isinstance(moves, list) or len(moves) > 121:
         raise ValueError('11×11 棋谱最多 121 手')
     game = HexGame(11)
@@ -93,6 +97,7 @@ def validate_moves(moves, meta):
 
 
 def parse_txt(data):
+    """按 GB2312 解码比赛 TXT，解析六段头信息及落子/MARK 序列，再调用规则校验；拒绝超限和格式错误文件。"""
     if len(data) > MAX_RECORD_BYTES:
         raise ValueError('棋谱文件超过 256 KB')
     try:
@@ -131,6 +136,7 @@ def parse_txt(data):
 
 
 def parse_json_record(data):
+    """按 UTF-8 解析详细棋谱，兼容旧版记录字段，校验棋盘尺寸和完整落子序列并返回导入警告。"""
     if len(data) > MAX_JSON_RECORD_BYTES:
         raise ValueError('详细 JSON 棋谱超过 8 MB')
     try:
@@ -147,6 +153,7 @@ def parse_json_record(data):
 
 
 def export_txt(moves, metadata):
+    """校验棋谱并生成比赛规定的文件名与 GB2312 内容；有实际胜者时据此填写结果，未完局需人工声明结果。"""
     meta = metadata_checked(metadata)
     moves, winner, _ = validate_moves(moves, meta)
     if winner:

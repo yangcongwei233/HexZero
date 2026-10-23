@@ -17,16 +17,19 @@ APP = None
 
 
 def digest(path):
+    """计算权重文件 SHA-256，作为本批评测的模型身份记录。"""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def save_json(path, data):
+    """通过临时文件原子保存评测清单与进度。"""
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(path)
 
 
 def initialize(checkpoint, reference_source, reference_checkpoint, output, simulations, backend, threads):
+    """为评测进程设置计算线程并加载训练模型和 Azalea 参考，复用网络执行多局任务。"""
     global APP
     for key in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS'):
         os.environ[key] = '1'
@@ -46,6 +49,7 @@ def initialize(checkpoint, reference_source, reference_checkpoint, output, simul
 
 
 def play(task):
+    """在指定开局和棋色分配下完成一局，独立验证胜负及落子唯一性，保存棋谱和双方搜索条件。"""
     from hex.HexLogic import has_won_bfs
     from hex_play_server import HexSession
     game_number, seed, trained_side, opening = task
@@ -83,6 +87,7 @@ def play(task):
 
 
 def summarize(results):
+    """汇总训练模型对参考模型的总胜率及分先后手成绩。"""
     wins = Counter(r['winner'] for r in results)
     seats = {}
     for side, name in ((1, 'trained_first_red'), (-1, 'trained_second_blue')):
@@ -99,6 +104,7 @@ def summarize(results):
 
 
 def main():
+    """加载固定模型及开局列表，按交换先后手任务执行并行评测，保存可复现设置和完整结果。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkpoint', type=Path, required=True)
     parser.add_argument('--reference-source', type=Path, default=ROOT.parent / 'azalea')

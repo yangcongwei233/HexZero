@@ -18,6 +18,7 @@ def select_action_with_priors(
     last_move=None,
     temp=0,
 ):
+    """依次尝试可选开局库和一步战术，未命中时建立经典 MCTS 搜索。返回实际动作、选择来源及可用的搜索分布。"""
     if use_opening_book:
         action = opening_book_action(board, player, game)
         if action is not None:

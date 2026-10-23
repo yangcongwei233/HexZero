@@ -7,6 +7,7 @@ from .search_tree import SearchTree
 class Policy:
     supports_time_limit = True
     def __init__(self, net, settings):
+        """绑定推理网络并从导出设置读取搜索参数，初始化随机数和采样开关；搜索树由 reset 建立。"""
         self.net = net
         self.settings = {'move_sampling': False, 'move_exploration': False}
         self.rng = np.random.RandomState()
@@ -16,6 +17,7 @@ class Policy:
             setattr(self, name, settings[name])
 
     def reset(self):
+        """清空参考搜索树并重置已走步数，开始一局独立对弈。"""
         self.tree = SearchTree()
         self.ply = 0
 
@@ -59,5 +61,6 @@ class Policy:
         self.ply += 1
 
     def tree_metrics(self):
+        """转发底层搜索树的统计接口，供兼容参考策略调用使用。"""
         return self.tree.metrics()
 

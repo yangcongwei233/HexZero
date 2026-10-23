@@ -12,6 +12,7 @@ FORMAT = 'hexzero-teacher-v1'
 
 
 def file_digest(path):
+    """分块计算教师数据文件的 SHA-256，避免一次读取整个文件。"""
     digest = hashlib.sha256()
     with Path(path).open('rb') as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
@@ -33,6 +34,7 @@ def canonical_target(game, board, player, legal_moves, visits):
 
 
 def save_dataset(path, arrays, metadata):
+    """将数组与版本、坐标及目标语义写入压缩临时数据集，完整校验后原子发布并返回哈希。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     meta = {**metadata, 'format': FORMAT, 'canonical_version': 1,
@@ -51,6 +53,7 @@ def save_dataset(path, arrays, metadata):
 
 class TeacherDataset:
     def __init__(self, path, board_size, expected_sha256=None):
+        """读取不含可执行对象的教师数组，校验哈希、形状、概率、落子顺序和双方样本完整性，建立按颜色采样的索引。"""
         self.path = str(Path(path).resolve())
         self.sha256 = file_digest(path)
         if expected_sha256 and expected_sha256 != self.sha256:
@@ -88,6 +91,7 @@ class TeacherDataset:
             raise ValueError('Teacher data must contain positions for both colors')
 
     def __len__(self):
+        """返回教师集中的局面数，不包含采样时随机产生的对称增强副本。"""
         return len(self.boards)
 
     def sample(self, count, rng=np.random):

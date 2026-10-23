@@ -41,16 +41,19 @@ def library():
 
 
 def ptr(array):
+    """取得 NumPy 数组的数据地址供 C 接口使用；数组本身必须在原生调用期间保持存活。"""
     return ct.c_void_p(array.ctypes.data)
 
 
 class NativeNode:
     """只读节点快照：换根使 generation 失效，搜索后按 epoch 刷新。"""
     def __init__(self, tree, index):
+        """建立原生节点的只读包装，记住树代次和节点编号；尚未读取时不复制统计。"""
         self.tree, self.index, self.generation = weakref.proxy(tree), index, tree.generation
         self.epoch, self.data = -1, None
 
     def snapshot(self):
+        """按搜索轮次缓存节点副本，换根后的旧包装直接报错；导出的棋盘和先验数组设为只读。"""
         tree = self.tree
         if tree.generation != self.generation:
             raise RuntimeError('Search tree changed; request a current node view')
@@ -80,6 +83,7 @@ class NativeNode:
         return self.data
 
     def __getattr__(self, name):
+        """将兼容属性读取转为快照或子节点包装访问；未知属性按正常 Python 规则报错。"""
         if name.startswith('__'):
             raise AttributeError(name)
         data = self.snapshot()
@@ -92,6 +96,7 @@ class NativeNode:
         raise AttributeError(name)
 
     def child(self, action):
+        """按动作读取已存在的原生子节点；动作越界或未探索时返回空值。"""
         action = int(action)
         if not 0 <= action < self.tree.actions:
             return None
@@ -99,12 +104,14 @@ class NativeNode:
         return self.tree.node(int(index)) if index >= 0 else None
 
     def is_expanded(self):
+        """通过当前有效快照判断原生节点是否已完成评估。"""
         return self.snapshot()['expanded']
 
 
 class NativeTree:
     """持有 C++ 树并自动释放；落子保留对应子树，未搜索过的落点清空树。"""
     def __init__(self, game):
+        """分配原生树并登记自动释放回调，初始化根、代次和包装缓存；分配失败时转为 Python 异常。"""
         self.game, self.actions = game, game.getActionSize()
         self.lib = library()
         self.handle = self.lib.hx_create(game.n)
@@ -115,34 +122,40 @@ class NativeTree:
         self._root = None
 
     def call(self, name, *args):
+        """调用指定原生接口；返回负错误码时读取树内错误文本并抛出异常。"""
         result = getattr(self.lib, name)(self.handle, *args)
         if result < 0:
             raise RuntimeError(self.lib.hx_error(self.handle).decode('utf-8', 'replace'))
         return result
 
     def node(self, index):
+        """按编号复用节点包装，避免反复创建 Python 对象；换根后缓存整体失效。"""
         if index not in self.views:
             self.views[index] = NativeNode(self, index)
         return self.views[index]
 
     @property
     def root(self):
+        """返回当前有效的原生根节点包装，空树返回空值。"""
         return self._root
 
     @root.setter
     def root(self, value):
+        """只允许赋空值清空原生树；更换非空根必须使用 set_root。"""
         if value is not None:
             raise ValueError('Use set_root to replace a native tree')
         self.call('hx_reset', None)
         self._invalidate(False)
 
     def _invalidate(self, has_root):
+        """增加代次并清理全部旧包装，按原生树是否仍有根重新创建根视图。"""
         self.generation += 1
         self.epoch += 1
         self.views.clear()
         self._root = self.node(0) if has_root else None
 
     def reset(self, canonical_board=None):
+        """校验并转换规范棋盘为连续 int8 数组，重置原生树；未指定棋盘时创建空局面。"""
         board = self.game.getInitBoard() if canonical_board is None else canonical_board
         board = np.ascontiguousarray(board, dtype=np.int8)
         if board.shape != (self.game.n, self.game.n) or np.any((board < -1) | (board > 1)):
@@ -151,10 +164,12 @@ class NativeTree:
         self._invalidate(True)
 
     def set_root(self, canonical_board):
+        """若已有根棋盘与输入一致则复用，否则重建搜索树。"""
         if self.root is None or not np.array_equal(self.root.board, canonical_board):
             self.reset(canonical_board)
 
     def update_with_move(self, action):
+        """执行原生换根和子树压缩，使旧节点包装失效；返回是否成功复用了已搜索分支。"""
         success = bool(self.call('hx_advance', int(action)))
         self._invalidate(success)
         return success
@@ -162,9 +177,11 @@ class NativeTree:
 
 class _NativeBatch:
     def __init__(self, size):
+        """只保存本批模拟数量，叶节点及路径数据仍留在原生树内部。"""
         self.size = size
 
     def __len__(self):
+        """返回本批选择的模拟条数，供父类统一累计预算。"""
         return self.size
 
 
@@ -173,6 +190,7 @@ class NativeMCTS(AzaleaMCTS):
     backend = 'cpp'
 
     def __init__(self, game, nnet, args):
+        """沿用批量搜索控制逻辑，将树替换为原生实现并预分配棋盘传输缓冲区。"""
         super().__init__(game, nnet, args)
         self.tree = NativeTree(game)
         self._boards = np.empty((max(1, int(arg_value(args, 'mctsBatchSize', 1))), game.n, game.n), np.int8)

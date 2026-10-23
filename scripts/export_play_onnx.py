@@ -23,20 +23,24 @@ from hex.pytorch.NNet import NNetWrapper
 
 
 def sha(path):
+    """计算源权重或导出模型的哈希，用于清单中的来源与内容校验。"""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 class ReferenceExport(torch.nn.Module):
     def __init__(self, net):
+        """包装参考网络，保留原前向计算而统一导出返回结构。"""
         super().__init__()
         self.net = net
 
     def forward(self, board, legal_moves):
+        """将参考网络的命名字典输出转换为策略对数概率和价值元组，供 ONNX 导出使用。"""
         result = self.net(board, legal_moves)
         return result['moves_logprob'], result['value']
 
 
 def validation_inputs(size, kind):
+    """用固定种子的合法落子构造不同阶段棋盘及参考动作数组，作为导出前后数值验证输入。"""
     game = HexGame(size)
     board, player = game.getInitBoard(), 1
     rng = np.random.default_rng(20261015)
@@ -60,6 +64,7 @@ def validation_inputs(size, kind):
 
 
 def export(model, path, info):
+    """导出临时 ONNX，在实际会话中核对输出形状和数值误差，验证通过后发布模型与带哈希清单。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     kind, n = info['kind'], info['board_size']
     boards, legal = validation_inputs(n, kind)
@@ -114,6 +119,7 @@ def export(model, path, info):
 
 
 def export_trained(checkpoint, destination):
+    """校验本项目断点坐标版本，按保存的网络结构加载权重，调用统一导出与验证流程。"""
     state = torch.load(checkpoint, map_location='cpu', weights_only=True)
     if state.get('canonical_version') != 1:
         raise ValueError('只支持 canonical_version=1 的 HexZero 断点')
@@ -134,6 +140,7 @@ def export_trained(checkpoint, destination):
 
 
 def main():
+    """解析输出位置及模型选择，分别导出本项目模型或可选 Azalea 参考模型，保存各自推理元数据。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / 'models/local_play/onnx')
     parser.add_argument('--reference-source', type=Path, default=ROOT.parent / 'azalea')

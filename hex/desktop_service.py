@@ -19,6 +19,7 @@ class DesktopService:
     """管理模型、会话和偏好；ONNX 与清单成对加载并校验 SHA-256。"""
 
     def __init__(self, models, data, model=None, threads=None, competition=False):
+        """读取偏好、扫描并校验模型，建立桌面对局服务并写入本地环境报告；公开版可降级为人人对弈，比赛版严格验证固定模型。"""
         self.models, self.data = Path(models).resolve(), Path(data).resolve()
         self.competition = bool(competition)
         self.model_error = None
@@ -55,6 +56,7 @@ class DesktopService:
                 sims = 12800
             def create_app(checkpoint):
                 # 桌面不传 reference_checkpoint；复制 Azalea 权重也不会启用对战入口。
+                """建立只使用本项目模型的桌面核心，复用线程和搜索配置；没有权重时创建人人对弈应用。"""
                 return HexApp(checkpoint, self.data / 'games', device='cpu',
                               backend='onnx', threads=threads, simulations=sims)
             try:
@@ -114,6 +116,7 @@ class DesktopService:
 
     @property
     def session(self):
+        """返回当前活动会话，由服务工作线程统一读写。"""
         return self.app.sessions[self.session_id]
 
     def snapshot(self):

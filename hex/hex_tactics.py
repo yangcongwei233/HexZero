@@ -10,19 +10,23 @@ BRIDGE_PAIRS = tuple((CIRCULAR_NEIGHBORS[d], CIRCULAR_NEIGHBORS[(d + 1) % 6]) fo
 
 
 def in_bounds(row, col, n):
+    """判断行列是否位于边长为 n 的棋盘内。"""
     return 0 <= row < n and 0 <= col < n
 
 
 def legal_actions(board, game):
+    """返回空格的动作编号，供一步战术枚举使用。"""
     return np.flatnonzero(game.getValidMoves(board, 1))
 
 
 def move_wins(board, player, game, action):
+    """在棋盘副本上尝试指定落子并判胜，不改变原局面。"""
     next_board, _ = game.getNextState(board, player, int(action))
     return has_won_fast(next_board, player)
 
 
 def find_immediate_win(board, player, game):
+    """依次检查合法动作，返回首个本方立即连通获胜点；不存在时返回空值。"""
     for action in legal_actions(board, game):
         if move_wins(board, player, game, action):
             return int(action)
@@ -30,6 +34,7 @@ def find_immediate_win(board, player, game):
 
 
 def find_immediate_block(board, player, game):
+    """返回对方首个一步获胜点，作为阻挡候选；多个威胁时单点阻挡不保证安全。"""
     for action in legal_actions(board, game):
         if move_wins(board, -player, game, action):
             return int(action)
@@ -37,6 +42,7 @@ def find_immediate_block(board, player, game):
 
 
 def _bridge_partner_candidates(board, row, col, player, game):
+    """围绕对方刚落的棋子寻找被侵入棋桥的另一连接点，返回尚为空位的应手。"""
     candidates = []
     for d in range(6):
         a = CIRCULAR_NEIGHBORS[d]
@@ -52,6 +58,7 @@ def _bridge_partner_candidates(board, row, col, player, game):
 
 
 def find_bridge_reply(board, player, game, last_move=None):
+    """确认上一手为对方落子后，寻找维持己方棋桥的直接应手；缺少有效上一手则不处理。"""
     if last_move is None:
         return None
 
@@ -71,12 +78,14 @@ def find_bridge_reply(board, player, game, last_move=None):
 
 
 def _axis_edge_bonus(row, col, player, n):
+    """按本方连接方向奖励目标边及邻近边的落点。"""
     if player == 1:
         return int(row in (0, n - 1)) * 2 + int(row in (1, n - 2))
     return int(col in (0, n - 1)) * 2 + int(col in (1, n - 2))
 
 
 def _friendly_neighbors(board, row, col, player):
+    """统计给定位置六邻格中的己方棋子数。"""
     n = board.shape[0]
     count = 0
     for dr, dc in HEX_NEIGHBORS:
@@ -100,10 +109,12 @@ def count_bridges(board, row, col, player):
 
 
 def _forms_bridge(board, row, col, player):
+    """判断假设落子能否形成至少一个两连接点均为空的棋桥。"""
     return count_bridges(board, row, col, player) > 0
 
 
 def find_boundary_pattern_move(board, player, game):
+    """按边界、邻子和棋桥启发分选出超过阈值的落点；此函数不提供必胜保证。"""
     best_action = None
     best_score = 0
     for action in legal_actions(board, game):
@@ -121,6 +132,7 @@ def find_boundary_pattern_move(board, player, game):
 
 
 def tactical_action(board, player, game, last_move=None):
+    """按立即获胜、阻挡对手立即获胜、棋桥应手的顺序选择；均未命中时返回空值继续常规搜索。"""
     for finder in (
         lambda: find_immediate_win(board, player, game),
         lambda: find_immediate_block(board, player, game),

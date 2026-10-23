@@ -12,16 +12,19 @@ import time
 
 
 def now():
+    """返回带时区的 UTC 时间字符串，用于续训状态记录。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 def atomic_json(path, payload):
+    """通过同目录临时文件原子更新监督器状态 JSON。"""
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(payload, indent=2) + '\n')
     temporary.replace(path)
 
 
 def process_identity(pid):
+    """读取进程启动标识以区分同一 PID 的不同进程；已退出或僵尸进程返回空值。"""
     try:
         fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
     except FileNotFoundError:
@@ -31,6 +34,7 @@ def process_identity(pid):
 
 def resume_command(original, folder, snapshot, target):
     # 不传入 --seed，由训练入口恢复断点中的随机数状态。
+    """从原命令移除旧续训参数，加入完整快照及本次剩余训练轮数；不覆盖断点随机状态。"""
     pairs = {'--num-iters', '--start-iter', '--checkpoint-file', '--examples-file',
              '--checkpoint-dir', '--seed', '--preset', '--epochs', '--batch-size', '--learning-rate'}
     flags = {'--load-model', '--fresh-replay', '--skip-first-self-play', '--allow-partial-checkpoint'}
@@ -69,6 +73,7 @@ def teacher_options(manifest_path, source_dir, fraction):
 
 
 def preserve_snapshot(run, folder, snapshot):
+    """在引入教师数据前用硬链接保留完整模型/经验池里程碑，已有同名但不同内容时拒绝覆盖。"""
     destination = run / 'milestones' / f'iteration_{snapshot["iteration"]}_before_teacher'
     destination.mkdir(parents=True, exist_ok=True)
     for key in ('model', 'examples'):
@@ -84,6 +89,7 @@ def preserve_snapshot(run, folder, snapshot):
 
 
 def main():
+    """持有监督锁等待原训练正常完成，核对末轮快照并按目标轮次续训；可等待教师数据验证完成，异常写入状态并退出。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--trainer-pid', type=int, required=True)

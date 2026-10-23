@@ -16,6 +16,7 @@ _worker_context = None
 
 
 def policy_args(args, game_id, model_id):
+    """派生一局一个模型的稳定种子并关闭根噪声，不依赖任务分配或完成顺序。"""
     config = dotdict(dict(args))
     # 种子只取决于对局和模型，不受进程分配或完成顺序影响。
     config.seed = int(np.random.SeedSequence([
@@ -27,6 +28,7 @@ def policy_args(args, game_id, model_id):
 
 
 def play_arena_game(game, previous, candidate, args, game_id):
+    """为新旧模型创建独立策略，按对局编号交替先手；返回对局编号及旧模型视角的结果。"""
     if args.get('mctsBackend', 'classic') == 'azalea':
         from hex.azalea_mcts import AzaleaStylePolicy as Policy
     else:
@@ -42,6 +44,7 @@ def play_arena_game(game, previous, candidate, args, game_id):
 
 
 def _initialize_worker(board_size, folder, config, device):
+    """在评估子进程中设置推理线程数，加载双方临时权重并缓存规则、网络和配置供多局复用。"""
     global _worker_context
     import torch
     from hex.pytorch.NNet import NNetWrapper
@@ -57,10 +60,12 @@ def _initialize_worker(board_size, folder, config, device):
 
 
 def _worker_game(game_id):
+    """使用本进程初始化的模型运行指定编号的一局，不再次加载权重。"""
     return play_arena_game(*_worker_context, game_id)
 
 
 def collect_results(results, num_games):
+    """校验对局编号、结果范围及完整性，拒绝重复或缺失对局，汇总旧模型胜、新模型胜和平局。"""
     seen = set()
     previous_wins = candidate_wins = draws = 0
     for game_id, winner in results:
@@ -78,6 +83,7 @@ def collect_results(results, num_games):
 
 
 def _run_pool(game, folder, args, device):
+    """以 spawn 方式启动评估进程池，异步收集结果；初始化或执行失败直接向调用方传播。"""
     games = int(args.arenaCompare)
     workers = min(int(args.get('arenaWorkers', 1)), games)
     # 直接传播初始化或进程异常，避免反复重启失败进程。
@@ -92,6 +98,7 @@ def _run_pool(game, folder, args, device):
 
 
 def run_parallel_arena(game, previous, candidate, args):
+    """校验局数和资源参数，生成仅含推理状态的双方临时权重并执行并行评估；结束后自动清理临时目录。"""
     games = int(args.arenaCompare)
     workers = int(args.get('arenaWorkers', 1))
     threads = int(args.get('arenaThreads', 1))

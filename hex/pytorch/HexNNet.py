@@ -9,6 +9,7 @@ sys.path.append('../..')
 
 class ResidualBlock(nn.Module):
     def __init__(self, channels):
+        """建立两个同宽卷积及批归一化层，保持空间尺寸以便与输入残差相加。"""
         super(ResidualBlock, self).__init__()
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(channels)
@@ -16,6 +17,7 @@ class ResidualBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(channels)
 
     def forward(self, x):
+        """执行卷积、归一化和激活，再与输入相加，返回同形状残差特征。"""
         residual = x
         x = F.relu(self.bn1(self.conv1(x)))
         x = self.bn2(self.conv2(x))
@@ -24,6 +26,7 @@ class ResidualBlock(nn.Module):
 
 class HexNNet(nn.Module):
     def __init__(self, game, args):
+        """按配置建立三通道输入、残差主干及独立策略/价值分支；分支宽度和价值归一化可配置。"""
         super(HexNNet, self).__init__()
         self.board_x, self.board_y = game.getBoardSize()
         self.action_size = game.getActionSize()
@@ -48,6 +51,7 @@ class HexNNet(nn.Module):
         self.value_fc2 = nn.Linear(args.value_hidden, 1)
 
     def _forward_impl(self, s, return_debug=False):
+        """将规范棋盘编码为己方、对方和常数通道，返回策略对数概率及 tanh 价值；调试模式额外返回价值分支中间特征。"""
         s = s.view(-1, self.board_x, self.board_y)
         own = (s == 1).float()
         opp = (s == -1).float()
@@ -87,7 +91,9 @@ class HexNNet(nn.Module):
         return out[0], out[1], debug
 
     def forward(self, s):
+        """执行常规网络前向计算，只返回训练或搜索需要的策略和价值。"""
         return self._forward_impl(s, return_debug=False)
 
     def forward_debug(self, s):
+        """执行同一前向路径并附带中间特征，供价值饱和与梯度诊断使用。"""
         return self._forward_impl(s, return_debug=True)

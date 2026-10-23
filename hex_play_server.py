@@ -15,16 +15,20 @@ log = logging.getLogger(__name__)
 
 
 def make_handler(app):
+    """把应用实例绑定到 HTTP 处理类，静态资源与 API 共用同一后端。"""
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
+            """将静态文件根目录固定为项目界面资源目录，避免暴露工作目录内容。"""
             super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
 
         def end_headers(self):
             # 界面资源和 Python 后端必须来自同一版本。
+            """为响应添加禁止缓存标记，确保界面脚本与后端版本匹配。"""
             self.send_header('Cache-Control', 'no-store')
             super().end_headers()
 
         def send_json(self, status, payload, download=False):
+            """编码并发送 UTF-8 JSON，设置状态、长度及可选下载头。"""
             data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -35,6 +39,7 @@ def make_handler(app):
             self.wfile.write(data)
 
         def do_GET(self):
+            """在应用锁内读取配置、棋局或下载记录，其他路径提供静态文件；将缺失会话转为明确错误。"""
             url = urlparse(self.path)
             try:
                 with app.lock:
@@ -68,6 +73,7 @@ def make_handler(app):
                 return self.send_json(404, {'error': '棋局不存在或已经释放，请新开一局'})
 
         def do_POST(self):
+            """校验来源及请求体，在锁内分派新局、落子、分析、棋谱和模型操作；将业务错误转为 JSON 响应。"""
             try:
                 origin = self.headers.get('Origin')
                 if origin and urlparse(origin).netloc != self.headers.get('Host'):
@@ -132,6 +138,7 @@ def make_handler(app):
 
 
 def main():
+    """解析本地服务参数，加载应用并启动 HTTP 服务；退出时释放监听资源。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8765)

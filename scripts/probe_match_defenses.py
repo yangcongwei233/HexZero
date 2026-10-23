@@ -11,6 +11,7 @@ import evaluate_local_models as evaluation
 
 
 def probe(task):
+    """回放指定前缀并尝试替代防守，再让本地引擎续弈，记录结果和双方预算；仅用于诊断，不当作公平胜率样本。"""
     from hex.HexLogic import has_won_bfs
     from hex_play_server import HexSession
     game = json.loads(Path(task['record']).read_text())
@@ -54,6 +55,7 @@ def probe(task):
 
 
 def main():
+    """读取诊断任务并并行执行，逐步保存进度与最终替代走法结果。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tasks', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)

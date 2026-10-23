@@ -5,12 +5,14 @@ from .hex_tactics import count_bridges, HEX_NEIGHBORS, in_bounds
 
 
 def _edge_distance_score(row, col, player, n):
+    """按候选落点到己方目标边的最近距离评分，越靠近边界分数越高。"""
     if player == 1:
         return 1.0 / (1.0 + min(row, n - 1 - row))
     return 1.0 / (1.0 + min(col, n - 1 - col))
 
 
 def _connection_span_score(board, row, col, player):
+    """估计新落子对己方目标方向跨度的增量；己方尚无棋子时使用中央距离评分。"""
     stones = np.argwhere(board == player)
     n = board.shape[0]
     if stones.size == 0:
@@ -26,6 +28,7 @@ def _connection_span_score(board, row, col, player):
 
 
 def _opponent_span_block_score(board, row, col, player):
+    """按落点接近对方连接跨度中心的程度给出阻断启发分，不构成必防证明。"""
     opponent = -player
     stones = np.argwhere(board == opponent)
     if stones.size == 0:
@@ -37,6 +40,7 @@ def _opponent_span_block_score(board, row, col, player):
 
 
 def _neighbor_counts(board, row, col, player):
+    """统计六个合法邻格中的己方、对方和空位数量，忽略棋盘外位置。"""
     n = board.shape[0]
     friendly = 0
     opponent = 0
@@ -55,10 +59,12 @@ def _neighbor_counts(board, row, col, player):
 
 
 def _bridge_score(board, row, col, player):
+    """合并己方建桥和对方潜在棋桥数量，给出落点的局部连接启发分。"""
     return 1.2 * count_bridges(board, row, col, player) + 0.8 * count_bridges(board, row, col, -player)
 
 
 def _boundary_shape_score(board, row, col, player):
+    """结合目标边距离和己方邻子，给出边界形状奖励。"""
     n = board.shape[0]
     if player == 1:
         near_goal = row in (0, n - 1)
@@ -77,6 +83,7 @@ def _boundary_shape_score(board, row, col, player):
 
 
 def heuristic_policy(board, player, game):
+    """综合中央、邻子、跨度、边界和棋桥评分生成合法动作分布；总分为零时回退均匀合法分布。"""
     board = np.asarray(board)
     valids = game.getValidMoves(board, player).astype(np.float64)
     scores = np.zeros(game.getActionSize(), dtype=np.float64)

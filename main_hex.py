@@ -52,6 +52,7 @@ PRESETS = {
 
 
 def build_args(cli_args):
+    """合并预设与显式命令行覆盖，生成训练器统一配置；目录和日志参数由调用方决定。"""
     preset = PRESETS[cli_args.preset].copy()
     checkpoint = cli_args.checkpoint_dir or './temp/hex_{}x{}/'.format(cli_args.board_size, cli_args.board_size)
 
@@ -110,6 +111,7 @@ def build_args(cli_args):
 
 
 def parse_args():
+    """定义训练命令行接口并校验数值范围、续训与经验池选项组合；保存显式参数名，以便恢复断点时正确覆盖。"""
     parser = argparse.ArgumentParser(description='Train AlphaZero-style Hex.')
     parser.add_argument('--board-size', type=int, default=5, help='Use 5 for quick runs, later 7 or 11.')
     parser.add_argument('--preset', choices=sorted(PRESETS), default='smoke')
@@ -250,6 +252,8 @@ RESUME_OPTIONS = {
 
 
 def main():
+    """建立规则与网络，按需恢复模型、优化器、随机状态及经验池，再执行指定轮数。
+    正常续训继承断点设置，显式选项优先；num-iters 表示本次执行轮数。"""
     cli_args = parse_args()
     args = build_args(cli_args)
 

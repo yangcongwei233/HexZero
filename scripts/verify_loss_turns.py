@@ -15,6 +15,7 @@ import scripts.review_azalea_losses as R
 
 
 def rollout(board, side, forced, simulations, seed):
+    """从指定局面强制一着后让 Azalea 接管双方，使用独立初始树并在续局内复用子树，记录最终胜负。"""
     import numpy as np
     from hex.HexLogic import has_won_bfs
     engine = R.ENGINE
@@ -44,6 +45,7 @@ def rollout(board, side, forced, simulations, seed):
 
 
 def verify(task):
+    """对实战着和替代着以相同加深预算复核，再分别续弈，返回估值差与完整分支证据。"""
     import numpy as np
     started = time.perf_counter()
     row = task['position']
@@ -60,6 +62,7 @@ def verify(task):
 
 
 def main():
+    """从初筛复盘中选择指定分歧执行加深与续弈验证，保存结果并注明其不构成完美博弈证明。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('review', type=Path)
     parser.add_argument('--output', type=Path, required=True)

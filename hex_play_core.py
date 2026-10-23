@@ -27,12 +27,14 @@ log = logging.getLogger(__name__)
 
 
 def integer(value, name, low, high):
+    """校验参数为指定范围内的整数，显式拒绝布尔值以免其被当成 0 或 1。"""
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise ValueError(f'{name}必须是 {low}～{high} 的整数')
     return value
 
 
 def latest_checkpoint(folder):
+    """在给定目录按轮次寻找最新模型，并兼容约定的备用文件名；无可用权重时抛出明确错误。"""
     candidates = []
     for path in Path(folder).glob('checkpoint_*.pth.tar'):
         match = re.fullmatch(r'checkpoint_(\d+)\.pth\.tar', path.name)
@@ -48,6 +50,7 @@ def latest_checkpoint(folder):
 
 
 def winning_path(board, winner):
+    """用六邻接 BFS 提取胜方从目标边到另一边的一条实际连接路径，供棋盘高亮。"""
     if winner is None:
         return []
     n = len(board)
@@ -75,6 +78,7 @@ def winning_path(board, winner):
 class HexSession:
     """管理单局、手动开局及打谱；mine 决定执方，不改变红先蓝后。"""
     def __init__(self, app, mode, mine, simulations, seed, manual_opening=False, move_time_ms=0, clock_minutes=0):
+        """建立独立棋局、棋钟、搜索器、回放和评注状态，记录模式、先后手、预算及随机种子。"""
         self.app, self.game = app, app.game
         self.move_time_ms = app.validate_move_time(move_time_ms)
         self.clock = MatchClock(clock_minutes)
@@ -111,6 +115,7 @@ class HexSession:
         return engines
 
     def kind(self, player):
+        """根据模式和所选棋色返回该方控制者；人人模式双方均由人类控制。"""
         if self.mode == 'pvp':
             return 'human'
         return self.mode if player == self.mine else 'trained'
@@ -137,6 +142,7 @@ class HexSession:
                     notation=dict(origin='bottom-left', first='R', second='B', redConnects='top-bottom'))
 
     def check_revision(self, revision):
+        """刷新超时结果并校验请求版本，拒绝旧界面提交或已结束棋局的实战操作。"""
         self.refresh_clock()
         if revision != self.revision:
             raise ValueError('棋局已更新，请刷新后重试')
@@ -144,6 +150,7 @@ class HexSession:
             raise ValueError('本局已结束，请新开一局或悔棋')
 
     def refresh_clock(self):
+        """在实战中检查棋钟，超时则判对方获胜、停止计时、更新结果并保存棋谱。"""
         if not self.winner and not self.replay_mode and not self.opening_setup:
             expired = self.clock.expired()
             if expired:
@@ -154,6 +161,7 @@ class HexSession:
                 self.save()
 
     def control_clock(self, running, revision):
+        """校验棋局版本与计时模式后暂停或继续棋钟，递增版本号使旧请求失效。"""
         self.check_revision(revision)
         if type(running) is not bool or not self.clock.minutes or self.opening_setup or self.replay_mode:
             raise ValueError('请在启用计时的实战局面中操作棋钟')
@@ -164,6 +172,7 @@ class HexSession:
         self.revision += 1
 
     def begin_turn(self):
+        """首次行动时启动棋钟；若比赛时钟被人工暂停则要求先继续，避免暂停状态下偷偷走棋。"""
         if self.clock.minutes:
             if not self.clock.started:
                 self.clock.start(self.player)
@@ -204,6 +213,7 @@ class HexSession:
             self.save()
 
     def human_move(self, row, col, revision):
+        """校验人类回合、手动布局状态和行列范围，将落点交给统一执行入口。"""
         self.check_revision(revision)
         if self.replay_mode:
             raise ValueError('打谱查看模式不能直接落子，请先选择“从此局面续弈”')
@@ -219,6 +229,7 @@ class HexSession:
                    {'source': 'manual_opening'} if self.opening_setup else None)
 
     def finish_opening(self, revision):
+        """结束人工开局阶段，固定手动前缀并清理旧分析，允许模型从当前局面接管。"""
         self.check_revision(revision)
         if not self.opening_setup:
             raise ValueError('当前不在手动开局阶段')
@@ -265,6 +276,7 @@ class HexSession:
         self.refresh_clock()
 
     def step(self, revision):
+        """在模型回合计算搜索预算并调用当前引擎，记录实际模拟数和停止原因后通过统一入口落子。"""
         self.check_revision(revision)
         if self.replay_mode:
             raise ValueError('打谱查看模式不能自动落子')
@@ -336,6 +348,7 @@ class HexSession:
         self.revision += 1
 
     def update_metadata(self, metadata, revision):
+        """校验新比赛信息并与完整棋谱核对胜负，即使游标停在前段也不忽略后续；通过后保存。"""
         if revision != self.revision:
             raise ValueError('棋局已更新，请刷新后重试')
         checked = metadata_checked(metadata)
@@ -393,17 +406,20 @@ class HexSession:
         self.save()
 
     def competition_record(self):
+        """将当前完整记录转换为比赛 TXT 文件名和字节内容，仅支持 11×11 棋盘。"""
         if self.game.n != 11:
             raise ValueError('比赛 TXT 格式仅用于 11×11 棋盘')
         return export_txt(self.record_moves if self.replay_mode else self.moves, self.record_metadata)
 
     def record(self):
+        """生成可保存的详细 JSON 数据，包含模型、搜索设置、完整棋谱及当前显示状态。"""
         config = self.app.config()
         return dict(format='hexzero-local-match-v3', createdAt=self.created_at,
                     models=config['models'], search=config['search'], inference=config['inference'],
                     recordMoves=copy.deepcopy(self.record_moves if self.replay_mode else self.moves), **self.state())
 
     def save(self):
+        """以会话编号生成 JSON 文件，写入临时文件后原子替换，并记录保存位置。"""
         folder = self.app.save_dir
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f'hex_{self.id}.json'
@@ -418,6 +434,7 @@ class HexApp:
     def __init__(self, checkpoint, save_dir, device='cpu', simulations=3200,
                  reference_source=None, reference_checkpoint=None, board_size=None,
                  backend='torch', threads=None):
+        """初始化规则与会话管理，按后端加载本项目模型及可选参考引擎；无模型时保留人人对弈和棋谱能力。"""
         self.checkpoint = Path(checkpoint).resolve() if checkpoint is not None else None
         self.net = None
         if backend not in ('torch', 'onnx'):
@@ -480,6 +497,7 @@ class HexApp:
         self.on_model_changed = None
 
     def enable_model_library(self, directory, on_change=None):
+        """为 ONNX 后端启用目录扫描和模型切换回调，确认当前模型位于该目录内。"""
         if self.backend != 'onnx':
             raise ValueError('模型目录选择需要 ONNX 推理后端')
         from hex.model_library import ModelLibrary
@@ -489,6 +507,7 @@ class HexApp:
         self.on_model_changed = on_change
 
     def model_catalog(self, refresh=False):
+        """返回可选模型、错误项和当前模型标识，可按请求刷新目录；未启用模型库则返回空值。"""
         if self.model_library is None:
             return None
         result = self.model_library.refresh() if refresh else self.model_library.snapshot()
@@ -497,6 +516,7 @@ class HexApp:
         return result
 
     def select_model(self, ident, mode='human', mine=1, simulations=None, seed=0, move_time_ms=0, clock_minutes=0):
+        """先校验并试运行新模型，再保存原棋局并替换网络及会话，避免加载失败破坏当前状态。"""
         if self.model_library is None:
             raise ValueError('未配置模型目录')
         move_time_ms = self.validate_move_time(move_time_ms)
@@ -524,6 +544,7 @@ class HexApp:
         return dict(config=self.config(), session=session.state())
 
     def set_threads(self, threads):
+        """校验线程数并先建立新推理会话，再替换共享网络对象；已有棋盘和搜索树保留。"""
         integer(threads, 'CPU 推理线程数', 4, 16)
         if self.backend != 'onnx':
             raise ValueError('此设置仅适用于优化后的 ONNX 推理版')
@@ -548,6 +569,7 @@ class HexApp:
         return self.config()
 
     def config(self):
+        """返回界面和棋谱所需的规则、模型、推理和搜索配置，不执行搜索。"""
         return dict(boardSize=self.game.n, device=self.device, defaultSimulations=self.default_simulations,
                     inference=dict(backend=self.backend, threads=self.threads, precision='FP32',
                                    configurable=self.backend == 'onnx', minThreads=4, maxThreads=16),
@@ -563,6 +585,7 @@ class HexApp:
                                 noise=False, maxSimulations=100000, maxMoveTimeMs=120000))
 
     def validate_new_session(self, mode, mine, simulations, seed, manual_opening, require_model=True):
+        """校验模式、棋色、预算、种子与布局标志，并确认所需模型可用；返回最终搜索次数。"""
         if mode not in ('human', 'pvp', 'azalea'):
             raise ValueError('对局模式必须为 human、pvp 或 azalea')
         if require_model and mode != 'pvp' and self.net is None:
@@ -581,12 +604,14 @@ class HexApp:
 
     @staticmethod
     def validate_move_time(value):
+        """校验单步时限范围；零表示仅按搜索次数停止，非零时必须达到允许的最小时限。"""
         integer(value, '单步用时', 0, 120000)
         if 0 < value < 100:
             raise ValueError('单步用时至少为 100 毫秒，或用 0 表示固定搜索次数')
         return value
 
     def new_session(self, mode='human', mine=1, simulations=None, seed=0, manual_opening=False, move_time_ms=0, clock_minutes=0):
+        """校验设置后建立会话，处理旧会话计时并限制保留数量，返回新局快照。"""
         simulations = self.validate_new_session(mode, mine, simulations, seed, manual_opening)
         session = HexSession(self, mode, mine, simulations, seed, manual_opening, move_time_ms, clock_minutes)
         for previous in self.sessions.values():
@@ -599,6 +624,7 @@ class HexApp:
         return session.state()
 
     def import_record(self, encoded, kind, mode='human', mine=1, simulations=None, seed=0, move_time_ms=0, clock_minutes=0):
+        """解码并校验上传棋谱，建立独立回放会话并将游标置于开头；不把棋谱加入训练数据。"""
         if self.game.n != 11:
             raise ValueError('比赛棋谱仅支持 11×11 棋盘')
         if kind not in ('txt', 'json'):
@@ -621,6 +647,7 @@ class HexApp:
         return session.state()
 
     def continue_record(self, session, revision):
+        """从未结束的回放局面建立新分支，保留前缀落子和评注，允许从此处继续人工布局或实战。"""
         if not session.replay_mode or session.winner or revision != session.revision:
             raise ValueError('请选择尚未结束的打谱局面再续弈')
         session.save()

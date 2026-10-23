@@ -8,6 +8,7 @@ except ImportError:
 
 
 def _select_edge(valids, prior, visits, totals, pending, parent_visits, cpuct):
+    """扫描合法动作，结合真实和虚拟访问计算 PUCT 评分，返回最高分动作；运算顺序与 Python 搜索一致。"""
     best_action, best_score = -1, -math.inf
     root = math.sqrt(parent_visits + 1e-8)
     for action in range(len(valids)):
@@ -22,6 +23,7 @@ def _select_edge(valids, prior, visits, totals, pending, parent_visits, cpuct):
 
 
 def _virtual_path(parent, visits, totals, leaf, root, amount):
+    """沿父链向根增减虚拟访问和价值，用于同批路径探索；不修改根节点。"""
     while leaf != root:
         visits[leaf] += amount
         totals[leaf] += amount
@@ -29,6 +31,7 @@ def _virtual_path(parent, visits, totals, leaf, root, amount):
 
 
 def _backup_paths(parent, visits, totals, leaves, root, values):
+    """按输入顺序逐条回传叶子价值，每上行一层翻转符号，同时累计节点访问次数。"""
     for i in range(len(leaves)):
         node, value = leaves[i], values[i]
         while True:

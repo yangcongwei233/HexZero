@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 
 def make_board(n, positive, variant):
+    """按标签和变体生成用于价值学习诊断的合成棋盘；这些样本不等同于正式合法自博弈数据。"""
     board = np.zeros((n, n), dtype=np.float32)
     offset = variant % n
 
@@ -45,6 +46,7 @@ def make_board(n, positive, variant):
 
 
 def make_dataset(n, repeats):
+    """组合正负标签的合成棋盘，构造规模可控的小数据集以检验价值头学习能力。"""
     boards = []
     values = []
     for variant in range(repeats):
@@ -56,6 +58,7 @@ def make_dataset(n, repeats):
 
 
 def summarize_predictions(label, preds, targets):
+    """按目标正负分组汇总预测分布，记录价值头是否能区分两类样本。"""
     preds = preds.reshape(-1)
     targets = targets.reshape(-1)
     pos = preds[targets > 0]
@@ -66,6 +69,7 @@ def summarize_predictions(label, preds, targets):
 
 
 def log_feature_debug(model, boards):
+    """执行无梯度调试前向并打印价值分支各层分布，帮助定位饱和或特征退化。"""
     model.train()
     with torch.no_grad():
         _, _, debug = model.forward_debug(boards)
@@ -77,6 +81,7 @@ def log_feature_debug(model, boards):
 
 
 def evaluate(model, boards, targets, label):
+    """以评估模式预测整份诊断集，再输出预测与目标的统计对照。"""
     model.eval()
     with torch.no_grad():
         _, pred_v = model(boards)
@@ -84,6 +89,7 @@ def evaluate(model, boards, targets, label):
 
 
 def main():
+    """构建小型诊断网络和合成数据，执行指定步数的学习检查，对比训练前后价值预测。"""
     parser = argparse.ArgumentParser(description='Debug whether the Hex value head can learn a tiny dataset.')
     parser.add_argument('--board-size', type=int, default=5)
     parser.add_argument('--steps', type=int, default=120)

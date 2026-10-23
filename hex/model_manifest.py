@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 def load_manifest(model, kind):
+    """读取模型清单并校验格式、类型、棋盘尺寸及权重 SHA-256；不加载原生推理库。"""
     model = Path(model)
     data = json.loads(model.with_suffix(model.suffix + '.json').read_text(encoding='utf-8'))
     if not isinstance(data, dict) or data.get('format') != 'hexzero-onnx-v1' or data.get('kind') != kind:

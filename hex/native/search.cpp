@@ -27,6 +27,7 @@ struct Node {
     uint64_t tag = 0;
     bool expanded = false;
     double value = 0, edge_prior = 1;
+    // 初始化节点的子节点索引为 −1，表示各动作尚未探索；其余数组使用成员默认零值。
     Node() { child.fill(-1); }
 };
 struct Tree {
@@ -37,13 +38,16 @@ struct Tree {
     std::vector<Node> nodes;
     std::vector<int32_t> leaves, evaluate;
     uint64_t batch = 0;
+    // 建立指定边长的搜索树，校验原生实现支持的尺寸范围；节点存储按需增长。
     explicit Tree(int size) : n(size), actions(size * size) {
         if (size < 1 || size > 11) throw std::invalid_argument("native board size must be 1..11");
     }
+    // 校验节点编号后返回可变引用，防止旧包装引用换根后失效的节点。
     Node& at(int id) {
         if (id < 0 || size_t(id) >= nodes.size()) throw std::out_of_range("stale native node");
         return nodes[id];
     }
+    // 用栈上定长数组执行六邻接 BFS，判断指定棋色是否连接指定方向的两条边。
     bool connected(const Node& node, int stone, bool horizontal) const {
         std::array<uint8_t, MAX_A> seen{};
         std::array<int, MAX_A> queue{};
@@ -65,6 +69,7 @@ struct Tree {
         }
         return false;
     }
+    // 结合真实/虚拟访问和先验计算 PUCT，返回最高分合法动作；根节点可使用带噪声的临时先验。
     int choose(int id, const double* root_prior, double cpuct) {
         const Node& node = nodes[id];
         double scale = std::sqrt(std::max(1, node.visits + node.pending_total) + 1e-8);
@@ -81,6 +86,7 @@ struct Tree {
         if (action < 0) throw std::runtime_error("no selectable edge");
         return action;
     }
+    // 按父节点动作创建后继节点，同时转置并换色为下一方视角；达到硬容量上限时拒绝扩展。
     int create_child(int id, int action) {
         if (nodes.size() >= MAX_NODES) throw std::runtime_error("native search node limit reached");
         Node child;
@@ -93,6 +99,7 @@ struct Tree {
         nodes[id].child[action] = index;
         return index;
     }
+    // 批量选择路径，以临时虚拟访问分散同批搜索；无论成功或异常，都撤销本批预留计数。
     void select(int count, const double* prior, double cpuct) {
         if (nodes.empty() || !nodes[0].expanded || nodes[0].terminal != 0)
             throw std::runtime_error("root must be evaluated and nonterminal");
@@ -119,6 +126,7 @@ struct Tree {
         }
         for (auto edge : reserved) { nodes[edge.first].pending[edge.second]--; nodes[edge.first].pending_total--; }
     }
+    // 对已选叶子按批次标记去重，先执行终局检查，仅把非终局棋盘复制到调用方推理缓冲区。
     int prepare(int8_t* boards) {
         ++batch; evaluate.clear();
         for (int id : leaves) {
@@ -135,6 +143,7 @@ struct Tree {
         }
         return int(evaluate.size());
     }
+    // 校验整批网络输出后写入叶节点先验和价值，再按原选择顺序逐路径回传；跨层翻转价值符号。
     void commit(const double* priors, const double* values, int count) {
         if (size_t(count) != evaluate.size()) throw std::invalid_argument("inference batch mismatch");
         // 修改树之前先校验整批输入。
@@ -163,6 +172,7 @@ struct Tree {
         }
         leaves.clear(); evaluate.clear();
     }
+    // 将实际动作的子树移到根位置，重新映射编号并释放无关分支；未探索落点则清空树。
     bool advance(int action) {
         if (action < 0 || action >= actions) throw std::invalid_argument("invalid move");
         int child = nodes.empty() ? -1 : nodes[0].child[action];
@@ -189,6 +199,7 @@ struct Tree {
         return true;
     }
 };
+// 将错误文本截断写入当前树的固定缓冲区，保证末尾终止且不依赖线程局部析构。
 void set_error(void* p, const char* message) noexcept {
     if (!p) return;
     auto& error = static_cast<Tree*>(p)->error;
@@ -196,22 +207,29 @@ void set_error(void* p, const char* message) noexcept {
     std::memcpy(error.data(), message, length);
     error[length] = '\0';
 }
+// 包装原生调用并捕获异常，将错误写入树缓冲区后返回 −1，避免异常越过 C 接口。
 template<class F> int guard(void* p, F f) noexcept {
     try { set_error(p, ""); return f(); }
     catch (const std::exception& e) { set_error(p, e.what()); return -1; }
     catch (...) { set_error(p, "unknown native search error"); return -1; }
 }
+// 校验不透明句柄非空并恢复原生树引用，供导出接口共用。
 Tree& tree(void* p) { if (!p) throw std::invalid_argument("null native tree"); return *static_cast<Tree*>(p); }
 }
+// 返回接口版本，Python 加载时据此拒绝签名不兼容的旧动态库。
 API int hx_abi() { return 2; }
+// 读取树内最近错误文本；空句柄返回固定分配错误提示，调用方不负责释放字符串。
 API const char* hx_error(void* p) {
     return p ? static_cast<Tree*>(p)->error.data() : "native tree allocation failed or invalid board size";
 }
+// 分配并返回不透明树句柄；构造失败返回空指针，不向调用方抛出 C++ 异常。
 API void* hx_create(int n) noexcept {
     try { return new Tree(n); }
     catch (...) { return nullptr; }
 }
+// 释放树及全部节点存储；由 Python 终结回调调用，空指针可安全传入。
 API void hx_destroy(void* p) noexcept { delete static_cast<Tree*>(p); }
+// 清空搜索状态；非空棋盘指针用于建立校验后的根，空指针表示只清空。
 API int hx_reset(void* p, const int8_t* board) { return guard(p, [&] {
     auto& t = tree(p); t.nodes.clear(); t.leaves.clear(); t.evaluate.clear();
     if (board) {
@@ -224,25 +242,32 @@ API int hx_reset(void* p, const int8_t* board) { return guard(p, [&] {
     }
     return 0;
 }); }
+// 返回当前节点数，供 Python 在选批前执行容量预算检查。
 API int hx_size(void* p) { return guard(p, [&] { return int(tree(p).nodes.size()); }); }
+// 将根作为单叶批次提交，供新树首次网络评估使用，不执行路径选择。
 API int hx_root_batch(void* p) { return guard(p, [&] {
     auto& t = tree(p); t.at(0); t.leaves.assign(1, 0); return 0;
 }); }
+// 校验先验指针后选择指定数量的模拟路径，路径列表保留在原生树内。
 API int hx_select(void* p, int count, const double* prior, double cpuct) { return guard(p, [&] {
     if (!prior) throw std::invalid_argument("null prior");
     tree(p).select(count, prior, cpuct); return 0;
 }); }
+// 检查输出缓冲区容量，复制去重后的待推理棋盘并返回实际网络批量大小。
 API int hx_prepare(void* p, int8_t* boards, int capacity) { return guard(p, [&] {
     auto& t = tree(p);
     if (!boards || size_t(capacity) < t.leaves.size()) throw std::invalid_argument("small board buffer");
     return t.prepare(boards);
 }); }
+// 检查策略/价值指针，提交网络结果并完成全部路径回传；纯终局批次允许零个网络结果。
 API int hx_commit(void* p, const double* priors, const double* values, int count) { return guard(p, [&] {
     if (count && (!priors || !values)) throw std::invalid_argument("null predictions");
     tree(p).commit(priors, values, count); return 0;
 }); }
+// 执行换根，返回 1 表示成功复用子树、0 表示已清空，异常返回负值。
 API int hx_advance(void* p, int action) { return guard(p, [&] { return int(tree(p).advance(action)); }); }
 // 仅返回副本，避免 NumPy 视图引用已释放或重新分配的原生存储。
+// 将指定节点的棋盘、先验、边统计及状态复制到调用方数组；不会暴露原生存储视图。
 API int hx_snapshot(void* p, int id, int8_t* board, double* prior, double* totals,
                     int32_t* counts, int32_t* children, int32_t* order, int32_t* info, double* edge_prior) {
     return guard(p, [&] {

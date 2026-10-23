@@ -21,6 +21,7 @@ GAME = NET = TRAINED = REFERENCE = None
 
 
 def initialize(checkpoint, source, reference_checkpoint):
+    """为本地复盘加载固定训练断点和参考引擎，设置进程计算线程并缓存公共规则。"""
     global GAME, NET, TRAINED, REFERENCE
     for key in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS'):
         os.environ[key] = '1'
@@ -43,6 +44,7 @@ def initialize(checkpoint, source, reference_checkpoint):
 
 
 def reset_engine(kind, board, player, simulations, seed):
+    """清空分析统计并同步给定棋盘和当前方，使每个复盘候选获得独立的新树预算。"""
     import numpy as np
     engine = TRAINED if kind == 'trained' else REFERENCE
     policy = engine.policy
@@ -90,6 +92,7 @@ def search(board, player, trained_side, simulations, seed, kind='trained'):
 
 
 def after_move(board, player, action, trained_side, simulations, seed, kind='trained'):
+    """在指定落点之后检查终局或执行新树搜索，把结果转换为统一的训练模型一方视角。"""
     from hex.HexLogic import has_won_bfs
     next_board, next_player = GAME.getNextState(board, player, int(action))
     if has_won_bfs(next_board, player):
@@ -102,6 +105,7 @@ def after_move(board, player, action, trained_side, simulations, seed, kind='tra
 
 
 def positions_from_record(record, game, checkpoint_sha):
+    """核对记录中的训练权重哈希与动作前缀，重放合法棋谱并返回逐步局面。"""
     import numpy as np
     from hex.HexLogic import has_won_bfs
     assert record['models']['trained']['metadata']['sha256'] == checkpoint_sha
@@ -128,6 +132,7 @@ def positions_from_record(record, game, checkpoint_sha):
 
 
 def review(task):
+    """用训练模型复核 Azalea 败局中的决策，筛查战术和候选后继，并在相同局面上对照双方估值。"""
     from scripts.analyze_match_tactics import immediate_wins
     started = time.perf_counter()
     game, settings = task['game'], task['settings']
@@ -213,6 +218,7 @@ def review(task):
 
 
 def summarize(games):
+    """统计参考模型决策数量、深查差异及精确漏胜漏防事件，区分估值证据与规则证明。"""
     rows = [r for g in games for r in g['positions']]
     return dict(games=len(games), azalea_decisions=len(rows),
                 deep_positions=sum('deep' in r for r in rows),
@@ -228,6 +234,7 @@ def summarize(games):
 
 
 def main():
+    """筛选参考模型败局并冻结训练断点，执行并行复盘后保存逐局证据和汇总。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--results', nargs='+', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)

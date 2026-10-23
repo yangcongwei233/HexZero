@@ -30,8 +30,11 @@ svg{width:100%;height:auto}table{border-collapse:collapse;width:100%;font-size:1
 <div class="card"><h2>核验与范围</h2><ul><li>跳过预设的开局着法；原棋谱逐手重放并用 BFS 独立核验胜负。</li><li>一步获胜与唯一挡点逐格枚举核验；双杀表示对手有两个立即获胜点且己方没有一步获胜点。</li><li>Azalea 既是原对手也是复盘者，其判断不等于独立裁判的结论。</li><li>保留原版搜索批量 10；参数 800 / 3200 分别选择 810 / 3210 条路径。批内重复叶会合并，实际根访问数可能更少，已逐项记录。关闭噪声与温度采样，不复用不同局面的搜索树。</li><li>本机 CPU 执行，棋谱保持为评测数据，未加入训练池。</li></ul><a href="results.json">完整 JSON</a> · <a href="decisions.csv">逐手 CSV</a><p id="source" class="muted"></p></div></section></div></main>
 <script type="application/json" id="data">__DATA__</script>
 <script>
+// 读取内嵌复盘数据；$ 按元素编号查找报告中的控件。
 const D=JSON.parse(document.getElementById('data').textContent),$=id=>document.getElementById(id);
+// coord 沿用旧棋谱的自上而下行号；q 格式化带符号估值，缺失值显示占位符。
 let gi=0,ri=0;const coord=a=>String.fromCharCode(65+a%11)+(Math.floor(a/11)+1),q=v=>v===null||v===undefined?'—':(v>=0?'+':'')+v.toFixed(3);
+// 转义插入 HTML 的文本，防止棋局名称等内容被当作标签解释。
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const summary=D.summary,all=D.games.flatMap(g=>g.positions);
 $('subtitle').textContent=`模型第 ${[...new Set(D.games.map(g=>g.game.model_iteration))].join(' / ')} 轮 · ${summary.games} 局败局 · 本机 CPU 复盘`;
@@ -43,7 +46,9 @@ const gaps=Object.values(summary.by_seat).reduce((n,s)=>n+s.games_with_deep_gap_
 $('findings').innerHTML=`<p>${gaps} / ${summary.games} 局中，已检候选着比实战着高至少 0.3 Q；这是复盘筛查阈值，不是棋力评分标准。</p>`+(proofs.length?`<p>${proofs.length} 次漏唯一挡点均已核验：即使正确挡住，对手仍能制造双杀，因此这些晚期漏挡不是败势的起点。</p>`:'');
 const verified=[];D.games.forEach((g,i)=>g.positions.forEach((r,j)=>{if(r.verification)verified.push({g,r,i,j})}));
 if(verified.length){$('verified-cases').innerHTML='<p>以下案例进一步使用 12800 参数复核；点击可定位棋盘。续弈由 Azalea 接管双方。</p><table><thead><tr><th>开局 / 己方</th><th>手数</th><th>实战 → 替代</th><th>Q 变化</th><th>续弈结果</th></tr></thead><tbody>'+verified.map(({g,r,i,j})=>{const b=r.verification.branches;return`<tr><td>${g.game.opening.labels.join(' / ')} · ${r.player===1?'先手':'后手'}</td><td><button data-g="${i}" data-r="${j}">第 ${r.ply} 手</button></td><td>${coord(b[0].action)} → ${coord(b[1].action)}</td><td>${q(b[0].value)} → ${q(b[1].value)}</td><td>${b[0].rollout.trained_side_won?'胜':'负'} → ${b[1].rollout.trained_side_won?'胜':'负'}</td></tr>`}).join('')+'</tbody></table><p class="muted">这是选出的典型案例，不是随机胜率测试；单次续弈不构成必胜证明。</p>'; $('verified-cases').querySelectorAll('button').forEach(b=>b.onclick=()=>{gi=+b.dataset.g;ri=+b.dataset.r;$('game').value=gi;render();$('position').scrollIntoView({block:'center'})});}
+// 返回当前选中的棋局及复盘落子，供棋盘、曲线和候选表共用。
 function current(){return[D.games[gi],D.games[gi].positions[ri]]}
+// 绘制实战落子前的棋盘，标出实战着与推荐着；可叠加候选主变，不改变原棋谱。
 function board(preview=null){const[g,r]=current(),stones=new Map(g.moves.filter(m=>m.move<r.ply).map(m=>[m.action,{player:m.player,text:String(m.move)}]));
 if(preview)preview.forEach((a,i)=>stones.set(a,{player:r.player*(i%2?-1:1),text:'+'+(i+1),ghost:true}));
 const best=r.deep?r.deep.best_action:r.azalea_action;
@@ -57,12 +62,14 @@ if(s)html+=`<text x="${x}" y="${y+4}" text-anchor="middle" fill="white" font-siz
 if(a===r.actual)html+=`<circle cx="${x}" cy="${y}" r="14" stroke="#dd9820" stroke-width="3" fill="none"/>`;
 if(a===best)html+=`<circle cx="${x}" cy="${y}" r="17" stroke="#187648" stroke-width="3" stroke-dasharray="4 2" fill="none"/>`;
 }}$('board').innerHTML=html+'</svg>';}
+// 将局面序号与估值映射到 SVG 坐标，绘制两条评分曲线，并绑定点击定位落子的回调。
 function chart(){const[g]=current(),rs=g.positions,w=540,h=155,x=i=>35+i*(w-60)/Math.max(1,rs.length-1),y=v=>70-55*v;
 let s='<svg viewBox="0 0 540 155">';for(const v of[-1,0,1])s+=`<path d="M30 ${y(v)} H520" stroke="#d6ddd7" stroke-dasharray="3 3"/><text x="5" y="${y(v)+4}" font-size="10">${v}</text>`;
 for(const[key,color]of[['azalea_root_value','#3d7dc5'],['actual_after_value','#d58a32']])s+=`<polyline points="${rs.map((r,i)=>`${x(i)},${y(r[key])}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2"/>`;
 s+=`<path d="M${x(ri)} 10 V130" stroke="#183c2b"/>`;
 rs.forEach((r,i)=>{s+=`<circle data-index="${i}" cx="${x(i)}" cy="${y(r.azalea_root_value)}" r="6" fill="#3d7dc5" opacity=".65" style="cursor:pointer"><title>第 ${r.ply} 手</title></circle>`;if(i%5===0)s+=`<text x="${x(i)}" y="149" text-anchor="middle" font-size="10">${r.ply}</text>`});
 $('chart').innerHTML=s+'</svg>';$('chart').querySelectorAll('[data-index]').forEach(e=>e.onclick=()=>{ri=+e.dataset.index;render()});}
+// 同步当前落子的战术提示、候选主变和加深复核结果，再刷新棋盘、曲线及控件状态。
 function render(){const[g,r]=current();$('ply').max=g.positions.length-1;$('ply').value=ri;$('prev').disabled=ri===0;$('next').disabled=ri===g.positions.length-1;
 $('position').textContent=`实战第 ${r.ply} 手之前 · ${r.player===1?'蓝方':'红方'}轮到落子`;
 $('decision').textContent=`实战 ${coord(r.actual)} · Azalea 800 建议 ${coord(r.azalea_action)}`;
@@ -79,11 +86,13 @@ $('keys').innerHTML=g.positions.map((p,i)=>p.deep?`<p><button data-key="${i}">�
 $('keys').querySelectorAll('[data-key]').forEach(e=>e.onclick=()=>{ri=+e.dataset.key;render()});
 $('opening').textContent=`预设开局结束后的己方 Q：${q(g.opening_value)}；此时开局已给定，不归责于模型。`;
 $('source').textContent='原棋谱：'+g.game.record;board();chart();}
+// 选择棋局、拖动进度和翻页时刷新整页；重置按钮仅清除主变预览，保留当前复盘位置。
 $('game').onchange=()=>{gi=+$('game').value;ri=0;render()};$('ply').oninput=()=>{ri=+$('ply').value;render()};$('prev').onclick=()=>{ri--;render()};$('next').onclick=()=>{ri++;render()};$('reset').onclick=()=>{board();$('line').textContent='已回到落子前。'};render();
 </script></html>'''
 
 
 def main():
+    """读取复盘结果，生成扁平 CSV 及内嵌数据的 HTML 查看器；输出文件可离线打开。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('results', type=Path)
     args = parser.parse_args()
@@ -102,6 +111,7 @@ def main():
               'actual_after_q_800', 'deep_best', 'deep_actual_q', 'deep_best_q', 'deep_gap',
               'missed_immediate_win', 'missed_unique_block', 'already_lost_double_threat', 'record']
     def coord(a):
+        """将动作转为旧复盘报告的字母列和自上而下行号，保持与已有分析记录一致。"""
         return chr(65 + a % 11) + str(a // 11 + 1)
     with args.results.with_name('decisions.csv').open('w', newline='', encoding='utf-8-sig') as handle:
         writer = csv.DictWriter(handle, fields)

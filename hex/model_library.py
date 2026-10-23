@@ -6,6 +6,7 @@ from .model_manifest import load_manifest
 
 
 def check_compatible(manifest, board_size=11):
+    """校验模型清单的棋盘、坐标版本、精度及元数据结构，拒绝无法直接接入的模型。"""
     if manifest.get('board_size') != board_size:
         raise ValueError(f'只支持 {board_size}×{board_size} 模型')
     if manifest.get('canonical_version') != 1 or manifest.get('precision') != 'FP32':
@@ -16,6 +17,7 @@ def check_compatible(manifest, board_size=11):
 
 class ModelLibrary:
     def __init__(self, root, board_size=11):
+        """记录模型根目录及棋盘要求，建立校验缓存并立即扫描可选权重。"""
         self.root = Path(root).resolve()
         self.board_size = board_size
         self.cache = {}
@@ -23,9 +25,11 @@ class ModelLibrary:
         self.refresh()
 
     def model_id(self, path):
+        """将模型路径转换为根目录内的相对标识；根目录外路径不能成为合法标识。"""
         return Path(path).resolve().relative_to(self.root).as_posix()
 
     def refresh(self):
+        """扫描 ONNX 及清单，复用未变文件的检查结果并记录问题项；参考模型和未转换断点不作为训练模型候选。"""
         paths = set(self.root.rglob('*.onnx')) if self.root.is_dir() else set()
         if self.root.is_dir():
             paths.update(Path(str(p)[:-5]) for p in self.root.rglob('*.onnx.json'))
@@ -36,6 +40,7 @@ class ModelLibrary:
             ident = path.relative_to(self.root).as_posix()
             manifest_path = Path(str(path)+'.json')
             def file_signature(file):
+                """读取文件时间戳和尺寸作为扫描缓存签名；不代替选择模型时的哈希验证。"""
                 try:
                     info = file.stat()
                     return info.st_size, info.st_mtime_ns
@@ -86,9 +91,11 @@ class ModelLibrary:
         return self.snapshot()
 
     def snapshot(self):
+        """返回可供界面展示的模型目录信息，包括可选模型和扫描错误。"""
         return dict(directory=str(self.root), entries=[dict(e) for e in self.entries], refreshSeconds=5)
 
     def resolve(self, ident):
+        """将相对标识解析为根目录内文件，重新校验内容哈希和兼容性，防止路径越界或扫描后文件被替换。"""
         if not isinstance(ident, str): raise ValueError('请选择模型')
         self.refresh()
         entry = next((e for e in self.entries if e['id'] == ident), None)
@@ -101,6 +108,7 @@ class ModelLibrary:
         return path
 
     def choose(self, requested=None):
+        """优先匹配指定模型，否则按目录中的有效模型选择默认项；没有可用模型时说明原因。"""
         self.refresh()
         valid = [e for e in self.entries if e['available']]
         if not valid: raise ValueError('models 中没有可用模型；请复制完整的 .onnx 和 .onnx.json')

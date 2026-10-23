@@ -19,10 +19,12 @@ log = logging.getLogger(__name__)
 
 
 def arg_value(args, name, default):
+    """读取训练配置项，不存在时使用默认值，兼容旧断点缺少的新字段。"""
     return getattr(args, name, default)
 
 
 def atomic_pickle(path, payload):
+    """先将经验数据写入同目录临时文件，再原子替换目标；写入失败时清理临时文件。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.examples-', delete=False) as f:
@@ -56,6 +58,7 @@ class Coach:
     """串联自博弈、经验回放、网络更新和平衡先后手评估。"""
 
     def __init__(self, game, nnet, args):
+        """绑定规则、网络和配置，建立旧模型副本及搜索器。按配置加载并校验教师集，初始化可选的固定容量经验池。"""
         self.game, self.nnet, self.args = game, nnet, args
         self.pnet = copy.deepcopy(nnet)
         self.mcts = self._new_mcts(nnet)
@@ -82,12 +85,14 @@ class Coach:
             self.replayBuffer = ReplayBuffer(args.replayBufferSize)
 
     def _new_mcts(self, nnet):
+        """按 mctsBackend 选择经典逐次搜索或 Azalea 风格批量搜索，绑定指定网络。"""
         if arg_value(self.args, 'mctsBackend', 'classic') == 'azalea':
             from hex.azalea_mcts import AzaleaMCTS
             return AzaleaMCTS(self.game, nnet, self.args)
         return MCTS(self.game, nnet, self.args)
 
     def _arena_player(self, nnet):
+        """将指定网络包装为评估策略，每局独立维护搜索状态并处理先后手坐标。"""
         if arg_value(self.args, 'mctsBackend', 'classic') == 'azalea':
             from hex.azalea_mcts import AzaleaStylePolicy
             return AzaleaStylePolicy(self.game, nnet, self.args)
@@ -95,6 +100,7 @@ class Coach:
         return ClassicPolicy(self.game, nnet, self.args)
 
     def executeEpisode(self):
+        """用当前网络完成一局自博弈，生成带终局价值的样本；按配置保存棋谱并推进对局种子编号。"""
         from hex.parallel_self_play import _execute_episode, episode_seed, save_game_record
         seed = episode_seed(arg_value(self.args, 'seed', 0), arg_value(self.args, 'iteration', 0), self._episode_index)
         examples, record = _execute_episode(
@@ -106,10 +112,12 @@ class Coach:
         return examples
 
     def _scalar(self, name, value, step):
+        """在 TensorBoard 已启用时写入一个标量；未启用时直接返回，不创建日志目录。"""
         if self.writer is not None:
             self.writer.add_scalar(name, value, step)
 
     def learn(self):
+        """创建可选的 TensorBoard 写入器并执行训练循环；无论正常结束或异常，都释放日志资源。"""
         if arg_value(self.args, 'tensorboard', False):
             try:
                 from torch.utils.tensorboard import SummaryWriter
@@ -129,6 +137,8 @@ class Coach:
                 self.writer = None
 
     def _learn(self):
+        """逐轮完成自博弈、经验入池、网络更新和新旧模型评估。
+        候选胜率不足时恢复旧权重及优化器，日志步数保持递增；按保存间隔及结束轮次写入完整快照。"""
         start = arg_value(self.args, 'startIter', 1)
         end = start + self.args.numIters
         interval = arg_value(self.args, 'checkpointInterval', 10)
@@ -215,9 +225,11 @@ class Coach:
                 self.writer.flush()
 
     def getCheckpointFile(self, iteration):
+        """根据轮次生成模型快照文件名，不执行磁盘写入。"""
         return 'checkpoint_' + str(iteration) + '.pth.tar'
 
     def saveTrainExamples(self, iteration, filename=None):
+        """将经验历史和棋盘、坐标、增强版本一起原子保存，标记快照位于完整轮次结束之后。"""
         filename = filename or self.getCheckpointFile(iteration) + '.examples'
         atomic_pickle(Path(self.args.checkpoint) / filename, {
             'format_version': 2, 'augmentation_version': 2, 'canonical_version': 1,
@@ -226,6 +238,7 @@ class Coach:
         })
 
     def loadTrainExamples(self, path=None):
+        """读取并校验经验快照的棋盘尺寸及坐标、增强版本。恢复历史或 FIFO 缓冲区，拒绝可能包含非法镜像的旧数据。"""
         if path is None:
             model_path = Path(self.args.load_folder_file[0]) / self.args.load_folder_file[1]
             path = Path(str(model_path) + '.examples')
@@ -248,6 +261,7 @@ class Coach:
         self.skipFirstSelfPlay = False  # 一轮完整结束后再保存快照。
 
     def _save_snapshot(self, iteration):
+        """先保存模型和经验池，再发布最新清单及硬链接别名。只清理清单管理的过期快照，避免误删其他实验数据。"""
         folder = Path(self.args.checkpoint)
         folder.mkdir(parents=True, exist_ok=True)
         model = self.getCheckpointFile(iteration)

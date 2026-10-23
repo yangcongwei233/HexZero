@@ -30,6 +30,7 @@ def evaluate_root(tree: SearchTree,
 
 
 def check_game_state(state):
+    """断言参考状态的棋盘/动作类型、形状及终局与合法动作关系，帮助发现环境适配错误。"""
     assert isinstance(state.board, np.ndarray), 'board type error'
     assert state.board.dtype == np.int32, 'board type error'
     assert len(state.board.shape) == 2, 'board type error'
@@ -204,6 +205,7 @@ def evaluate_batch(game: SearchableEnv,
 def flip_result(result):
     # Numba 无法编译下方使用 all() 的检查。
     # 已停用的检查：结果编码应在 0～3 范围内。
+    """交换先后手视角的结果编码，保持未结束和平局编码不变。"""
     return (result > 0) * (4 - result)
 
 

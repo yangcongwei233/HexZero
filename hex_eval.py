@@ -21,16 +21,20 @@ log = logging.getLogger(__name__)
 
 class RandomPlayer:
     def __init__(self, game, seed=0):
+        """保存规则和独立随机数生成器，建立随机合法走子基线。"""
         self.game = game
         self.rng = np.random.default_rng(seed)
 
     def startGame(self):
+        """为统一评估接口提供新局通知，随机基线无需维护搜索树。"""
         pass
 
     def notify(self, board, action):
+        """接收真实动作通知；随机基线无树状态，无需更新。"""
         pass
 
     def __call__(self, canonical_board):
+        """从当前规范棋盘的合法动作中均匀抽样，返回动作编号。"""
         valids = np.flatnonzero(self.game.getValidMoves(canonical_board, 1))
         return int(self.rng.choice(valids))
 
@@ -41,12 +45,14 @@ EvalAzaleaPlayer = AzaleaStylePolicy
 
 class ModelSpec:
     def __init__(self, name, path=None, nnet=None):
+        """保存模型名称、权重路径和已加载网络；网络为空时表示随机基线。"""
         self.name = name
         self.path = path
         self.nnet = nnet
 
 
 def build_args(cli_args):
+    """将评估命令行参数转换成搜索器配置，统一双方预算与可选启发开关。"""
     return dotdict({
         "numMCTSSims": cli_args.num_mcts_sims,
         "cpuct": cli_args.cpuct,
@@ -63,6 +69,7 @@ def build_args(cli_args):
 
 
 def load_model_specs(game, checkpoint_paths, include_random):
+    """解析待比较模型清单及随机基线设置，建立模型描述列表。"""
     specs = []
     if include_random:
         specs.append(ModelSpec("<random>"))
@@ -76,6 +83,7 @@ def load_model_specs(game, checkpoint_paths, include_random):
 
 
 def make_player(spec, game, args, seed):
+    """复用已加载网络或建立随机基线，用指定种子创建独立搜索策略。"""
     if spec.nnet is None:
         return RandomPlayer(game, seed=seed)
     if args.mctsBackend == "azalea":
@@ -86,6 +94,7 @@ def make_player(spec, game, args, seed):
 
 
 def play_pair(game, first_spec, second_spec, args, games, seed):
+    """让一对策略按平衡先后手完成比赛，汇总双方胜局和平局。"""
     if games < 2 or games % 2:
         raise ValueError("games-per-pair must be a positive even number")
     first_wins = 0
@@ -112,6 +121,7 @@ def play_pair(game, first_spec, second_spec, args, games, seed):
 
 
 def evaluate_round_robin(specs, game, args, games_per_pair, seed):
+    """枚举两两组合执行循环赛，返回以模型索引对为键的胜平负统计。"""
     outcomes = {}
     total_pairs = len(specs) * (len(specs) - 1) // 2
     pair_iter = (
@@ -144,6 +154,7 @@ def evaluate_round_robin(specs, game, args, games_per_pair, seed):
 
 
 def compute_bradley_terry_elo(num_players, outcomes, anchor_index=0, max_iter=10000, tol=1e-10):
+    """用胜负矩阵估计相对 Elo，加入小先验避免全胜或全负造成无穷评分。"""
     wins = np.zeros(num_players, dtype=np.float64)
     games = defaultdict(float)
 
@@ -178,6 +189,7 @@ def compute_bradley_terry_elo(num_players, outcomes, anchor_index=0, max_iter=10
 
 
 def write_results(path, specs, outcomes, elos, args):
+    """将循环赛结果和相对评分保存到指定输出位置，便于后续查看与对比。"""
     if not path:
         return
     payload = {
@@ -196,6 +208,7 @@ def write_results(path, specs, outcomes, elos, args):
 
 
 def parse_args():
+    """解析并校验循环赛模型、预算、局数及输出参数。"""
     parser = argparse.ArgumentParser(description="Evaluate Hex checkpoints with round-robin Elo ranking.")
     parser.add_argument("checkpoints", nargs="+", help="Checkpoint files, e.g. temp/hex_11x11/checkpoint_7.pth.tar")
     parser.add_argument("--board-size", type=int, default=11)
@@ -218,6 +231,7 @@ def parse_args():
 
 
 def main():
+    """加载评估配置、执行循环赛并保存和打印结果，不更新模型权重。"""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     cli_args = parse_args()
     args = build_args(cli_args)

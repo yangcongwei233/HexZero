@@ -22,6 +22,7 @@ os.environ['NUMBA_CACHE_DIR'] = str(ROOT / 'cache' / 'numba')
 
 
 def read_settings():
+    """读取便携目录偏好 JSON，缺失或损坏时返回默认空设置并记录原因。"""
     path = ROOT / 'settings.json'
     if not path.is_file():
         return {}
@@ -35,6 +36,7 @@ def read_settings():
 
 
 def saved_threads():
+    """读取保存的线程数并校验范围，非法设置退回自动默认值。"""
     try:
         value = read_settings().get('threads')
         if value is None: return None
@@ -47,6 +49,7 @@ def saved_threads():
 
 
 def save_setting(key, value):
+    """更新单个偏好项并通过临时文件原子发布，保留其他已存设置。"""
     settings = read_settings()
     settings[key] = value
     temporary = ROOT / 'settings.json.tmp'
@@ -55,14 +58,17 @@ def save_setting(key, value):
 
 
 def save_threads(threads):
+    """保存用户选择的推理线程数，供下次启动沿用。"""
     save_setting('threads', threads)
 
 
 def save_model(ident):
+    """保存当前模型的相对标识，便于下次启动恢复选择。"""
     save_setting('model', ident)
 
 
 def choose_model(requested=None):
+    """优先使用显式模型，其次尝试保存的选择，最后从模型库选择可用默认项。"""
     from hex.model_library import ModelLibrary
     library = ModelLibrary(ROOT / 'models')
     if requested is not None:
@@ -77,6 +83,7 @@ def choose_model(requested=None):
 
 
 def startup_check(threads, model=None):
+    """启动隔离环境检查进程并读取退出码和报告；原生崩溃也保留日志，不继续启动坏环境。"""
     command = [sys.executable, '-X', 'utf8', '-X', 'faulthandler', str(Path(__file__).resolve()), '--environment-worker']
     report_path = ROOT / 'logs/environment-check.json'
     report_path.unlink(missing_ok=True)
@@ -156,6 +163,7 @@ def supervise_server(args, model, threads):
 
 
 def load_app(model, save_dir, simulations=None, threads=None):
+    """加载便携模型和配置，绑定模型/线程偏好回调，并用独立小树预热推理后返回应用。"""
     from hex_play_server import HexApp
     if simulations is None:
         simulations = read_settings().get('simulations', 3200)
@@ -179,6 +187,7 @@ def load_app(model, save_dir, simulations=None, threads=None):
 
 
 def self_test(threads=None):
+    """执行本地规则、原生内核、模型和对弈接口自检，将验证结果写入本地日志。"""
     import numpy as np
     import numba
     import onnxruntime
@@ -219,6 +228,7 @@ def self_test(threads=None):
 
 
 def main():
+    """解析便携启动选项，分派环境检查、自检或服务启动，显示原生进程退出信息并保存错误日志。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', help='Iteration number or ONNX path relative to models; default remembers last selection')
     parser.add_argument('--port', type=int, default=8765)

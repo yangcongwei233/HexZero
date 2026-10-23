@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 
 def _new_mcts(game, nnet, args):
+    """按配置建立经典或批量搜索器，供每局自博弈独立使用。"""
     if getattr(args, 'mctsBackend', 'classic') == 'azalea':
         from hex.azalea_mcts import AzaleaMCTS
         return AzaleaMCTS(game, nnet, args)
@@ -26,6 +27,8 @@ def _new_mcts(game, nnet, args):
 
 
 def _execute_episode(game, nnet, args, seed, worker_id=0, game_id=0, checkpoint_file=None):
+    """运行一局带温度和可选根噪声的自博弈，生成原局面及 180° 对称样本。
+    终局后按各步执棋方补齐价值标签，返回样本和棋谱信息。"""
     rng = np.random.default_rng(seed)
     train_examples = []
     board = game.getInitBoard()
@@ -100,6 +103,7 @@ def _execute_episode(game, nnet, args, seed, worker_id=0, game_id=0, checkpoint_
 
 
 def _worker(task):
+    """在子进程内设置设备与线程数，独立加载临时推理权重并完成任务分配的多局，返回样本及可选诊断。"""
     board_size, checkpoint_folder, checkpoint_file, args_dict, num_games, seed, worker_id = task
 
     if args_dict.get('selfplayDevice', 'cpu') == 'cpu':
@@ -137,10 +141,12 @@ def _worker(task):
 
 
 def episode_seed(base_seed, iteration, game_id):
+    """由基础种子、轮次和对局编号派生稳定随机种子，便于续训和并行结果复现。"""
     return int(np.random.SeedSequence([int(base_seed), int(iteration), int(game_id)]).generate_state(1)[0])
 
 
 def save_game_record(record, args, checkpoint_folder):
+    """按开关将单局元数据追加到对应任务的 JSONL 棋谱，策略向量由上游决定是否保存。"""
     if not getattr(args, 'saveSelfplayJsonl', False):
         return
     out_dir = getattr(args, 'selfplayOutputDir', None) or os.path.join(checkpoint_folder, 'selfplay_jsonl')
@@ -151,6 +157,7 @@ def save_game_record(record, args, checkpoint_folder):
 
 
 def _split_work(total_games, num_workers, games_per_worker):
+    """按每任务局数划分本轮对局，末任务允许不足额；未指定时根据进程数均分。"""
     if games_per_worker is None or games_per_worker <= 0:
         games_per_worker = max(1, int(np.ceil(float(total_games) / max(1, num_workers))))
 
@@ -165,12 +172,14 @@ def _split_work(total_games, num_workers, games_per_worker):
 
 def run_parallel_self_play(game, nnet, args, checkpoint_file='_parallel_selfplay.pth.tar'):
     # 各任务独立加载模型；临时交接文件仅含推理数据。
+    """导出本轮临时推理权重并启动任务执行，确保退出时清理交接文件。"""
     with tempfile.TemporaryDirectory(prefix='hex-selfplay-') as folder:
         nnet.save_checkpoint(folder=folder, filename=checkpoint_file, include_training=False)
         return _run_workers(game, args, folder, checkpoint_file)
 
 
 def _run_workers(game, args, checkpoint_folder, checkpoint_file):
+    """创建 spawn 进程池异步执行自博弈，按任务编号将结果稳定写入有界经验队列。"""
     num_workers = max(1, int(getattr(args, 'numWorkers', 1)))
     games_per_worker = getattr(args, 'gamesPerWorker', None)
     chunks = _split_work(args.numEps, num_workers, games_per_worker)

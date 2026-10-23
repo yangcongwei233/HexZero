@@ -14,6 +14,7 @@ from visualize_hex import draw_board
 
 
 def select_action(pi, temp):
+    """温度为零时取最大概率动作，否则归一化后按策略随机抽样。"""
     if temp == 0:
         return int(np.argmax(pi))
 
@@ -23,6 +24,7 @@ def select_action(pi, temp):
 
 
 def play_game(game, nnet, num_mcts_sims, sample_moves):
+    """运行一局可在前若干手采样的模型自博弈，返回棋盘历史和动作记录。"""
     args = dotdict({"numMCTSSims": num_mcts_sims, "cpuct": 1})
     board = game.getInitBoard()
     player = 1
@@ -53,6 +55,7 @@ def play_game(game, nnet, num_mcts_sims, sample_moves):
 
 
 def save_game(out_dir, game_index, history, moves):
+    """为单局创建输出目录，保存逐手图片、动画及动作 CSV，返回各产物位置。"""
     game_dir = os.path.join(out_dir, "game_{:02d}".format(game_index))
     os.makedirs(game_dir, exist_ok=True)
 
@@ -85,6 +88,7 @@ def save_game(out_dir, game_index, history, moves):
 
 
 def main():
+    """加载断点并连续生成多局可视化，保存每局结果和整批汇总。"""
     parser = argparse.ArgumentParser(description="Run and visualize multiple Hex model self-play games.")
     parser.add_argument("--board-size", type=int, default=5)
     parser.add_argument("--checkpoint", required=True)

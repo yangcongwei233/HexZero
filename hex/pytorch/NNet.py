@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 
 def use_cuda():
+    """尊重强制 CPU 环境开关，否则检查 PyTorch 是否可用 CUDA。"""
     if os.environ.get('HEX_FORCE_CPU') == '1':
         return False
     return torch.cuda.is_available()
@@ -47,6 +48,7 @@ args = dotdict({
 
 class NNetWrapper(NeuralNet):
     def __init__(self, game, config=None):
+        """合并网络配置并建立模型、Adam 优化器、训练步数和断点元数据；按配置将网络移到训练设备。"""
         self.game = game
         self.args = dotdict(dict(args))
         self.args.update(config or {})
@@ -63,6 +65,8 @@ class NNetWrapper(NeuralNet):
         self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args.lr)
 
     def train(self, examples, *, teacher=None, teacher_fraction=0.):
+        """按经验池规模安排每轮更新次数，有放回抽样自博弈并按累计配额混入教师样本。
+        最小化策略交叉熵与价值均方误差，记录来源损失和训练指标。"""
         if not examples:
             raise ValueError("Cannot train on an empty replay buffer")
         if not 0 <= teacher_fraction < 1 or (teacher_fraction and teacher is None):
@@ -179,10 +183,12 @@ class NNetWrapper(NeuralNet):
         return self.last_train_metrics
 
     def predict(self, board):
+        """对单个规范棋盘执行无梯度预测，返回策略概率和当前方价值。"""
         pis, vs = self.predict_batch([board])
         return pis[0], vs[0]
 
     def predict_batch(self, boards):
+        """将多个规范棋盘合并为一个网络批次，以评估模式和无梯度方式推理，返回 CPU 数组。"""
         boards = torch.FloatTensor(np.array(boards).astype(np.float32))
         if self.args.cuda:
             boards = boards.contiguous().cuda()
@@ -195,9 +201,11 @@ class NNetWrapper(NeuralNet):
         return torch.exp(pi).data.cpu().numpy(), v.data.cpu().numpy()
 
     def loss_pi(self, targets, outputs):
+        """计算搜索目标分布与网络对数策略的批平均交叉熵，目标允许是软概率分布。"""
         return -torch.sum(targets * outputs) / targets.size()[0]
 
     def loss_v(self, targets, outputs):
+        """计算价值预测和终局标签的均方误差；先展平两者，避免错误广播成批次方阵。"""
         targets = targets.float().view(-1)
         outputs = outputs.float().view(-1)
         if targets.shape != outputs.shape:
@@ -208,6 +216,7 @@ class NNetWrapper(NeuralNet):
         return F.mse_loss(outputs, targets)
 
     def _log_value_head_optimizer_diagnostic(self, optimizer):
+        """核对价值分支参数是否被优化器管理，并记录参数状态以诊断价值无法学习的问题。"""
         optimizer_param_ids = {
             id(param)
             for group in optimizer.param_groups
@@ -228,6 +237,7 @@ class NNetWrapper(NeuralNet):
             )
 
     def _log_value_feature_diagnostic(self, debug):
+        """汇总前向调试特征，记录价值头各层的分布和饱和情况。"""
         for label in (
             'trunk',
             'value_conv',
@@ -257,6 +267,7 @@ class NNetWrapper(NeuralNet):
                  'value_hidden', 'disable_value_bn')
 
     def get_inference_state(self):
+        """提取推理权重、棋盘及网络结构版本，省略优化器、训练元数据和随机状态，用于轻量进程交接。"""
         return {
             'format_version': 2,
             'board_size': [self.board_x, self.board_y],
@@ -266,6 +277,7 @@ class NNetWrapper(NeuralNet):
         }
 
     def get_training_state(self):
+        """深拷贝权重、优化器、配置、训练步数及随机状态，供完整续训或评估失败后的回滚。"""
         np_state = np.random.get_state()
         return {
             **self.get_inference_state(),
@@ -282,6 +294,7 @@ class NNetWrapper(NeuralNet):
         }
 
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', include_training=True):
+        """按是否包含训练状态生成快照，先写临时文件再原子替换，避免留下半份断点。"""
         os.makedirs(folder, exist_ok=True)
         filepath = os.path.join(folder, filename)
         with tempfile.NamedTemporaryFile(dir=folder, prefix='.checkpoint-', delete=False) as f:
@@ -296,6 +309,8 @@ class NNetWrapper(NeuralNet):
                 os.unlink(temporary)
 
     def load_training_state(self, checkpoint, restore_rng=False):
+        """完整加载时按断点配置重建网络并恢复优化器，可选恢复随机状态。
+        显式启用部分迁移时仅加载形状匹配的参数，重新建立优化器和训练计数。"""
         if 'board_size' in checkpoint and tuple(checkpoint['board_size']) != (self.board_x, self.board_y):
             raise ValueError('Checkpoint board size does not match the game')
         if checkpoint.get('canonical_version', 1) != 1:
@@ -342,6 +357,7 @@ class NNetWrapper(NeuralNet):
                 torch.cuda.set_rng_state_all([state.cpu() for state in rng['cuda']])
 
     def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', restore_rng=False):
+        """从指定文件读取断点并交给状态加载器校验，支持显式启用的部分权重迁移。"""
         filepath = os.path.join(folder, filename)
         if not os.path.isfile(filepath):
             raise FileNotFoundError("No model in path {}".format(filepath))

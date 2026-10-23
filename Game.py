@@ -2,6 +2,7 @@ class Game():
     """双人轮流对抗游戏的规则接口，子类需实现下列方法。
     双方分别用 1 和 −1 表示。"""
     def __init__(self):
+        """规则接口的初始化占位，具体棋盘状态由子类定义。"""
         pass
 
     def getInitBoard(self):

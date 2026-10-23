@@ -20,16 +20,19 @@ SEARCH = dict(batch_size=32, cpuct=0.5, reuse_tree=True, temperature=0,
 
 
 def digest(path):
+    """计算断点文件哈希，确认任务期间权重未被替换。"""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def save_json(path, data):
+    """原子写入评测进度或最终结果，避免中断留下不完整 JSON。"""
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
     temporary.replace(path)
 
 
 def initialize(checkpoints, hashes, output, simulations, backend, threads):
+    """在评测进程中校验双方权重并加载网络，建立只对比本项目两个模型的会话类型。"""
     global APPS, SESSION
     for key in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS'):
         os.environ[key] = '1'
@@ -52,6 +55,7 @@ def initialize(checkpoints, hashes, output, simulations, backend, threads):
 
     class CheckpointSession(HexSession):
         def make_engines(self):
+            """为指定先后手各建独立搜索树，双方共享各自常驻网络并使用记录的种子。"""
             return {
                 -self.mine: TrainedPlayer(self.game, APPS['model_a'].net, self.simulations, self.seed),
                 self.mine: TrainedPlayer(self.game, APPS['model_b'].net, self.simulations,
@@ -59,9 +63,11 @@ def initialize(checkpoints, hashes, output, simulations, backend, threads):
             }
 
         def kind(self, player):
+            """将棋色映射为 model_a 或 model_b，避免先后手交换后统计错胜方。"""
             return 'model_b' if player == self.mine else 'model_a'
 
         def record(self):
+            """导出双断点专用棋谱，记录双方模型哈希、轮次、后端和完整搜索设置。"""
             models = {key: dict(path=str(app.checkpoint), metadata=app.metadata, sha256=hashes[key])
                       for key, app in APPS.items()}
             return dict(format='hexzero-local-match-v3', matchType='checkpoints', createdAt=self.created_at,
@@ -71,6 +77,7 @@ def initialize(checkpoints, hashes, output, simulations, backend, threads):
 
 
 def play(task):
+    """从任务指定的同色开局继续对弈，每步用独立 BFS 复核结果，保存棋谱并返回模型胜方和轨迹摘要。"""
     from hex.HexLogic import has_won_bfs
     number, seed, model_a_side, opening = task
     session = SESSION(APPS['model_a'], mode='checkpoints', mine=-model_a_side,
@@ -82,6 +89,7 @@ def play(task):
     started = time.perf_counter()
 
     def validate():
+        """核对双方不可能同时连通，检查会话胜者与独立规则结果一致，且步数不超过棋盘容量。"""
         red = bool(has_won_bfs(session.board, 1))
         blue = bool(has_won_bfs(session.board, -1))
         assert not (red and blue), 'Both colors cannot win'
@@ -112,7 +120,9 @@ def play(task):
 
 
 def summarize(games):
+    """分别统计总成绩和模型 A 执先、执后的成绩，便于检查先后手偏差。"""
     def score(subset):
+        """对指定对局子集计算双方胜局与模型 A 胜率；空子集胜率记为空值。"""
         a_wins = sum(g['winner'] == 'model_a' for g in subset)
         return dict(games=len(subset), model_a_wins=a_wins, model_b_wins=len(subset)-a_wins,
                     model_a_win_rate=a_wins/len(subset) if subset else None)
@@ -122,6 +132,7 @@ def summarize(games):
 
 
 def main():
+    """冻结双方模型哈希，以相同开局交换先后手生成任务，多进程执行后发布进度、棋谱及最终统计。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model-a', type=Path, required=True)
     parser.add_argument('--model-b', type=Path, required=True)

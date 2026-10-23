@@ -42,6 +42,7 @@ class DesktopWindow:
     """界面保存只读快照；工作线程独占搜索树，结果由 Tk.after 轮询。"""
 
     def __init__(self, root, models, data, model=None, threads=None, competition=False):
+        """初始化窗口状态、串行工作线程和界面控件，后台加载模型并启动结果轮询，避免推理阻塞界面。"""
         self.root, self.models, self.data = root, Path(models), Path(data)
         self.competition = bool(competition)
         self.model_controls = []
@@ -67,6 +68,7 @@ class DesktopWindow:
         self.root.after(40, self._poll)
 
     def _button(self, parent, text, command, **grid):
+        """创建统一布局的按钮并登记到控件列表，便于忙碌时集中禁用。"""
         button = ttk.Button(parent, text=text, command=command)
         button.grid(padx=4, pady=4, sticky='ew', **grid)
         self.controls.append(button)
@@ -121,6 +123,7 @@ class DesktopWindow:
         self.progress.pack(fill='x')
 
     def _build_play(self):
+        """建立对局模式、先后手、搜索上限、手动开局及棋钟控制区域。"""
         tab = self.play_tab
         tab.columnconfigure((0, 1), weight=1)
         self.mode = tk.StringVar(value='人机对弈' if self.competition else '人人对弈')
@@ -145,6 +148,7 @@ class DesktopWindow:
         ttk.Label(tab, text='手动开局时，点击空位替红蓝双方交替落子。\n暂停模型应手会等待正在计算的一手结束。', wraplength=350).grid(row=11, column=0, columnspan=2, pady=14, sticky='w')
 
     def _build_analysis(self):
+        """建立前三候选列表和主变化预览控件，区分局面估值、评注等级与实际落子。"""
         tab = self.analysis_tab
         tab.columnconfigure(0, weight=1)
         ttk.Label(tab, text='HexZero · 当前执棋方视角').grid(row=0, column=0, sticky='w')
@@ -168,6 +172,7 @@ class DesktopWindow:
         ttk.Label(tab, text='Q 为当前执棋方视角，范围 −1～+1，不是胜率。\nMARK −2～+2 表示局面优劣。\n候选按访问次数、Q、先验排序；预览不落子。', wraplength=350).grid(row=8, column=0, sticky='w', pady=14)
 
     def _build_record(self):
+        """建立棋谱导入导出、逐手回放和评注入口，供人人或人机对局共用。"""
         tab = self.record_tab
         tab.columnconfigure((0, 1), weight=1)
         self._button(tab, '导入 TXT / JSON', self.import_record, row=0, column=0)
@@ -191,6 +196,7 @@ class DesktopWindow:
         ttk.Label(tab, textvariable=self.comment_text, wraplength=350).grid(row=6, column=0, columnspan=2, sticky='w', pady=8)
 
     def _build_settings(self):
+        """建立模型选择、线程和高级设置；比赛版隐藏或禁用换模控件。"""
         tab = self.settings_tab
         tab.columnconfigure(0, weight=1)
         ttk.Label(tab, text='比赛版 · 固定 3250 模型' if self.competition else '当前 HexZero 模型').grid(row=0, column=0, sticky='w')
@@ -227,6 +233,7 @@ class DesktopWindow:
     def _load(self):
         """模型初始化也在工作线程执行，首次 Numba 编译不会冻结窗口。"""
         def initialize():
+            """在后台线程创建桌面服务，返回首个只读快照，避免主线程直接持有推理执行流程。"""
             from hex.desktop_service import DesktopService
             self.service = DesktopService(self.models, self.data, self.requested_model, self.requested_threads, self.competition)
             return self.service.snapshot()
@@ -236,6 +243,7 @@ class DesktopWindow:
         self._control_states()
 
     def _submit(self, operation, **params):
+        """向串行执行器提交服务操作并更新忙碌状态；已有任务时不并发操作同一棋局。"""
         if self.future is not None or self.service is None:
             return
         self.operation = operation
@@ -319,6 +327,7 @@ class DesktopWindow:
         self.root.after(50, self._poll)
 
     def _control_states(self):
+        """根据后台任务、模型可用性及比赛模式统一更新控件状态，保留允许排队的暂停或分析请求。"""
         busy = self.future is not None or self.service is None or self.closing
         for widget in self.controls:
             widget.configure(state='disabled' if busy else 'normal')
@@ -338,6 +347,7 @@ class DesktopWindow:
                 widget.configure(state='disabled')
 
     def _options(self):
+        """读取界面设置并转换为后端参数，拒绝非有限单步时间，统一人机/人人模式和棋色编号。"""
         seconds = float(self.move_seconds.get())
         if not math.isfinite(seconds):
             raise ValueError('单步秒数必须是有限数值')
@@ -347,6 +357,7 @@ class DesktopWindow:
                     move_time_ms=round(seconds * 1000), clock_minutes=int(self.clock_minutes.get()))
 
     def new_game(self, manual):
+        """收集当前设置并请求新开局，可进入手动布局模式；输入错误通过对话框提示。"""
         try:
             self.command('new', manual_opening=manual, **self._options())
         except ValueError as exc:
@@ -364,6 +375,7 @@ class DesktopWindow:
         self._control_states()
 
     def analyze(self):
+        """停止自动应手意图并提交局面分析；若搜索正在进行则等待当前任务结束后处理。"""
         self.reply_pending = False
         if self.future is not None and self.operation == 'step':
             self.pending_analysis = 'trained'
@@ -372,10 +384,12 @@ class DesktopWindow:
             self.command('analyze', kind='trained')
 
     def toggle_clock(self):
+        """根据快照中的运行状态请求暂停或继续棋钟，实际计时仍由后端维护。"""
         if self.state:
             self.command('clock', running=self.state['clock']['active'] is None)
 
     def render(self):
+        """依据最新只读快照更新胜负提示、模型、候选和棋谱列表，最后重绘棋盘；不在界面线程执行搜索。"""
         state, config = self.state, self.config
         if state['winner']:
             title = ('红方' if state['winner'] == 1 else '蓝方') + ('获胜（对方超时）' if state['winnerReason'] == 'timeout' else '获胜 · 已连接目标边')
@@ -429,6 +443,7 @@ class DesktopWindow:
         self.draw_board()
 
     def _clock_display(self):
+        """根据后端采样时刻平滑更新双方倒计时，仅用于显示，不自行裁定超时。"""
         if not self.state:
             return
         clock = self.state['clock']
@@ -493,6 +508,7 @@ class DesktopWindow:
             canvas.create_line(*[v for cell in path for v in self.centers[tuple(cell)]], fill='#f2d47e', width=4)
 
     def board_click(self, event):
+        """将鼠标位置映射到最近合法格点，只在人类回合或手动开局中提交落子；忙碌、回放和预览时忽略点击。"""
         if not self.state or self.future is not None or self.preview:
             return
         state = self.state
@@ -509,12 +525,14 @@ class DesktopWindow:
         self.command('move', row=cell[0], col=cell[1])
 
     def selected_candidate(self):
+        """从候选列表选中项取得对应分析结果；没有选择或分析时返回空值。"""
         selection = self.candidates.selection()
         if not selection or not self.state or not self.state.get('analysis'):
             return None
         return self.state['analysis']['candidates'][int(selection[0])]
 
     def select_candidate(self, event=None):
+        """切换候选后调整主变化预览深度并重绘棋盘，不提交真实落子。"""
         candidate = self.selected_candidate()
         if candidate:
             self.preview_scale.configure(to=len(candidate['pv']))
@@ -522,6 +540,7 @@ class DesktopWindow:
             self.update_preview()
 
     def update_preview(self):
+        """按滑块深度截取已搜索主变化，更新路径文字和棋盘覆盖层，不补造未搜索后续。"""
         candidate = self.selected_candidate()
         self.preview = candidate['pv'][:self.preview_depth.get()] if candidate else []
         if candidate:
@@ -530,25 +549,30 @@ class DesktopWindow:
         self.draw_board()
 
     def clear_preview(self):
+        """清空主变化覆盖层并恢复真实棋盘显示。"""
         self.preview = []
         self.preview_depth.set(0)
         self.draw_board()
 
     def play_candidate(self):
+        """将当前候选的首着作为人工落子提交，仍由核心检查回合与合法性。"""
         candidate = self.selected_candidate()
         if candidate:
             self.command('move', row=candidate['row'], col=candidate['col'])
 
     def history_seek(self, event=None):
+        """读取棋谱选中手数并请求后端回放到该位置。"""
         selection = self.history.selection()
         if selection:
             self.command('seek', ply=int(selection[0]))
 
     def seek_relative(self, change):
+        """在有效棋谱范围内前后移动回放游标，防止越过首尾。"""
         if self.state:
             self.command('seek', ply=max(0, min(self.state['replayTotal'], self.state['replayCursor']+change)))
 
     def import_record(self):
+        """打开棋谱文件选择框，收集当前对局设置并提交导入；取消时不改变棋局。"""
         path = filedialog.askopenfilename(parent=self.root, filetypes=[('Hex 棋谱', '*.txt *.json')])
         if path:
             try:
@@ -557,6 +581,7 @@ class DesktopWindow:
                 messagebox.showerror('设置无效', str(exc), parent=self.root)
 
     def export_record(self, kind):
+        """按 TXT 或 JSON 选择保存位置，TXT 默认文件名遵循比赛规则；实际写入由服务线程执行。"""
         initial = 'hex-match.json'
         if kind == 'txt' and self.state:
             # 用只读快照生成比赛规定的默认文件名；实际导出仍在工作线程完成。
@@ -573,6 +598,7 @@ class DesktopWindow:
             self.command('export', path=path)
 
     def edit_metadata(self):
+        """暂停自动应手意图，打开比赛信息编辑窗口，供填写队名、结果和赛事信息。"""
         if not self.state:
             return
         self.reply_pending = False
@@ -587,12 +613,14 @@ class DesktopWindow:
             widget = ttk.Combobox(dialog, textvariable=value, values=('', '先手胜', '后手胜'), state='readonly') if key == 'result' else ttk.Entry(dialog, textvariable=value, width=42)
             widget.grid(row=row, column=1, padx=10, pady=8)
         def save():
+            """把编辑后的元数据提交到服务校验并关闭弹窗。"""
             self.command('metadata', metadata={key: var.get() for key, var in variables.items()})
             dialog.destroy()
         ttk.Button(dialog, text='保存', command=save).grid(row=5, column=1, pady=12)
         dialog.grab_set()
 
     def edit_annotation(self):
+        """打开当前手的等级与详细评语编辑窗口，不修改落子顺序或搜索状态。"""
         if not self.state or not self.state['moves']:
             return
         self.reply_pending = False
@@ -607,17 +635,20 @@ class DesktopWindow:
         comment.pack(padx=12, pady=12)
         comment.insert('1.0', move.get('comment', ''))
         def save():
+            """读取评注等级和文本后提交保存，留空等级表示取消 MARK。"""
             self.command('annotate', mark=int(mark.get()) if mark.get() else None, comment=comment.get('1.0', 'end-1c'))
             dialog.destroy()
         ttk.Button(dialog, text='保存评注', command=save).pack(pady=10)
         dialog.grab_set()
 
     def change_model(self):
+        """按界面标签找到真实模型标识，提交校验和切换请求。"""
         entry = next((entry for entry in self.model_entries if entry['label'] == self.model_choice.get()), None)
         if entry:
             self.command('model', ident=entry['id'])
 
     def choose_models(self):
+        """选择新的模型目录，并在安全时机重建服务；比赛模式不提供该入口。"""
         if self.competition:
             self.status.set('比赛版已锁定 3250 模型。')
             return
@@ -631,6 +662,7 @@ class DesktopWindow:
             # 在线程外读取 Tk 变量，下面的闭包只使用普通整数。
             threads = int(self.threads.get())
             def reload_safe():
+                """在旧会话已处理后应用新模型目录并重新加载服务，避免工作线程同时使用新旧目录。"""
                 if self.service is not None:
                     self.service.perform('close')
                 self.service = None
@@ -651,6 +683,7 @@ class DesktopWindow:
 
 
 def main(argv=None):
+    """解析桌面启动参数，创建 Tk 主窗口与应用实例并进入事件循环。"""
     parser = argparse.ArgumentParser(description=__doc__)
     default_models = ROOT / 'models/local_play/onnx'
     parser.add_argument('--models', type=Path, default=default_models if default_models.is_dir() else ROOT / 'models')

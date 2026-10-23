@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    """从本地私有连接配置读取服务器设置，按完整快照清单仅导出推理权重；经 SSH 标准输出传回并在本地校验保存。"""
     parser = argparse.ArgumentParser(description=__doc__)
     # 机器专属 SSH 设置保存在公开源码仓库之外。
     config_path = ROOT / 'local_config/server.json'

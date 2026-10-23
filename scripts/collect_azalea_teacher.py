@@ -24,11 +24,13 @@ FORBIDDEN = None
 
 
 def opening_key(actions, n):
+    """将前两手及其 180° 对称表示归一化，用于排除与评测集重合的教师开局。"""
     pair = tuple(actions[:2])
     return min(pair, tuple(n * n - 1 - action for action in pair))
 
 
 def initialize(settings, forbidden):
+    """在采集进程中初始化参考网络、线程设置及禁止开局集合，后续多局复用网络。"""
     global REFERENCE, SETTINGS, FORBIDDEN
     import torch
     from hex.local_players import AzaleaReference
@@ -40,6 +42,7 @@ def initialize(settings, forbidden):
 
 
 def collect(game_id):
+    """用独立对局种子运行原版教师自博弈，拒绝评测集开局；保存原始访问分布及终局标签，并校验实际胜者。"""
     from hex.HexLogic import has_won_bfs
     n, settings = SETTINGS['board_size'], SETTINGS
     for attempt in range(1000):
@@ -83,12 +86,14 @@ def collect(game_id):
 
 
 def write_json(path, value):
+    """先写临时 JSON 再原子替换，避免进度或数据清单被读取到半份内容。"""
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
     temporary.replace(path)
 
 
 def main():
+    """校验采集与排除设置，多进程生成教师对局；按编号归并后校验并发布数据集和完成清单。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--reference-source', type=Path, default=ROOT.parent / 'azalea')

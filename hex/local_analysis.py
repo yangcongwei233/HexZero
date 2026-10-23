@@ -3,6 +3,7 @@ import numpy as np
 
 
 def _edges(node, board, player, game, kind):
+    """读取当前局面的合法出边，统一原始坐标、访问次数和当前方价值。核对树与棋盘一致性，兼容本项目及参考引擎的节点存储。"""
     if node is None:
         return []
     if kind == 'trained':
@@ -33,6 +34,7 @@ def _edges(node, board, player, game, kind):
 
 
 def _rank(edges):
+    """依次按访问次数、已知价值、先验和动作编号排列候选，保证并列时展示顺序稳定。"""
     return sorted(edges, key=lambda e: (-e['visits'],
                                        -(e['value'] if e['value'] is not None else -2),
                                        -e['prior'], e['action']))

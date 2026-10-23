@@ -5,4 +5,4 @@ Source copied from the adjacent azalea project; hashes in upstream-sha256.json.
 Changes on 2026-10-15: replace PyTorch batch conversion with NumPy; remove training/loading dependencies and no_grad context. Policy initialization accepts exported metadata.
 Search selection, virtual loss, deduplication, backup, normalization, temperature, tree storage and original simulation-loop accounting are unchanged.
 Changes on 2026-10-16: compile virtual-loss and backup numeric loops with Numba (fastmath disabled); grow tree arrays on demand up to the original node limit; avoid temporary root wrappers. Leaf traversal, arithmetic order, float32 storage and search budgets are preserved. Reference-environment snapshots are cached for unchanged boards in hex/local_players.py.
-2026-10-23：将源码注释和文档字符串简化为中文，保留算法、接口及许可声明。
+2026-10-23：统一中文注释并补全函数功能说明，保留算法、接口及许可声明。

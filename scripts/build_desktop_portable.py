@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def digest(path):
+    """计算文件 SHA-256，供软件包完整性验证使用。"""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -21,6 +22,7 @@ def copy_sources(source, target):
 
 
 def main():
+    """从基础离线包和 Tk 运行库组装桌面包，按公开或比赛模式处理模型及配置，生成 ZIP 和校验文件。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', type=Path, required=True)
     parser.add_argument('--tk-runtime', type=Path, required=True)

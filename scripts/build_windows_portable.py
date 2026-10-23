@@ -19,14 +19,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def sha(path):
+    """计算文件 SHA-256，供离线包校验清单使用。"""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def copy_tree(source, target):
+    """复制运行所需目录，排除解释器/编译缓存及开发测试文件。"""
     shutil.copytree(source, target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.nbc', '*.nbi', 'test_*.py'))
 
 
 def main():
+    """组装嵌入式 Python、Windows 依赖、源码、模型及启动器，生成离线 ZIP 和完整性清单。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, default=ROOT / 'dist/windows-build-cache')
     parser.add_argument('--wheels', type=Path, default=ROOT / 'dist/windows-onnx-wheels')

@@ -14,12 +14,14 @@ LEFT_RIGHT = "left_right"
 
 
 def action_to_coord(action, board_size):
+    """将按行编号的动作解码为从零开始的行列索引。"""
     row = int(action) // board_size
     col = int(action) % board_size
     return row, col
 
 
 def coord_to_action(row, col, board_size):
+    """将从零开始的行列索引编码为按行展平的动作编号。"""
     return int(row) * board_size + int(col)
 
 
@@ -112,6 +114,7 @@ def build_regions(board, stone, axis):
 if njit is not None:
     @njit(cache=True)
     def _has_connected_numba(board, stone, axis_id):
+        """用固定数组队列进行六邻接 BFS，检查指定棋色是否连通目标边；axis_id 为 0 时连接上下。"""
         n = board.shape[0]
         seen = np.zeros((n, n), dtype=np.uint8)
         queue_rows = np.empty(n * n, dtype=np.int32)
@@ -172,6 +175,7 @@ else:
 
 
 def has_connected_fast(board, stone, axis):
+    """优先调用已编译的连通性内核；Numba 不可用时退回基准 BFS。"""
     if _has_connected_numba is not None:
         axis_id = 0 if axis == TOP_BOTTOM else 1
         return bool(_has_connected_numba(np.asarray(board), stone, axis_id))
@@ -179,6 +183,7 @@ def has_connected_fast(board, stone, axis):
 
 
 def has_won_fast(board, player):
+    """按棋色选择标准目标轴并执行加速判胜；拒绝非 ±1 的玩家编号。"""
     if player == 1:
         return has_connected_fast(board, player, TOP_BOTTOM)
     if player == -1:
@@ -188,14 +193,17 @@ def has_won_fast(board, player):
 
 class Board:
     def __init__(self, n):
+        """创建指定边长的空棋盘，供简易规则调用使用。"""
         self.n = n
         self.pieces = np.zeros((n, n), dtype=np.int8)
 
     def execute_move(self, move, player):
+        """在本对象棋盘上原地落子；格点已占用时抛出异常。"""
         row, col = move
         if self.pieces[row, col] != 0:
             raise ValueError("Illegal move: position is already occupied")
         self.pieces[row, col] = player
 
     def get_legal_moves(self):
+        """返回当前棋盘所有空格的展平动作编号。"""
         return np.argwhere(self.pieces.ravel() == 0).ravel()
