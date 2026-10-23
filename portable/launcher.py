@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import sys
 import subprocess
-import tempfile
 import threading
 import time
 import webbrowser
@@ -82,46 +81,6 @@ def choose_model(requested=None):
     return library.choose()
 
 
-def startup_check(threads, model=None):
-    """启动隔离环境检查进程并读取退出码和报告；原生崩溃也保留日志，不继续启动坏环境。"""
-    command = [sys.executable, '-X', 'utf8', '-X', 'faulthandler', str(Path(__file__).resolve()), '--environment-worker']
-    report_path = ROOT / 'logs/environment-check.json'
-    report_path.unlink(missing_ok=True)
-    if threads is not None:
-        command.extend(['--threads', str(threads)])
-    if model is not None:
-        command.extend(['--model', model])
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8',
-                                errors='replace', timeout=90)
-    except subprocess.TimeoutExpired as exc:
-        report_path.write_text(json.dumps(dict(status='failed', failed_stage='timeout',
-                                               error='Environment check exceeded 90 seconds')),
-                               encoding='utf-8')
-        raise RuntimeError('环境检查超过 90 秒；请查看 logs，或运行 CHECK_ENV.bat') from exc
-    (ROOT / 'logs/environment-process.log').write_text(result.stdout+'\n'+result.stderr, encoding='utf-8')
-    if result.returncode:
-        code = result.returncode & 0xffffffff
-        hints = {0xc000001d: 'CPU 不支持运行库使用的指令',
-                 0xc0000005: '原生库访问无效内存',
-                 0xc0000135: '缺少运行库 DLL，请完整解压软件包',
-                 0xc000007b: '运行库架构不匹配，请使用完整 x64 软件包'}
-        hint = hints.get(code, 'Python 或 C++ 推理环境检查失败')
-        if result.returncode == -4:
-            hint = 'CPU 不支持运行库使用的指令'
-        # 即使子进程来不及写 JSON 报告，也保留原生崩溃信息。
-        if result.returncode != 1 or not report_path.is_file():
-            report_path.write_text(json.dumps(
-                dict(status='failed', failed_stage='native_process', returncode=result.returncode,
-                     error=hint), ensure_ascii=False, indent=2), encoding='utf-8')
-        else:
-            try:
-                details = json.loads(report_path.read_text(encoding='utf-8'))
-                hint += '：' + details.get('error', details.get('failed_stage', ''))
-            except (OSError, ValueError):
-                pass
-        raise RuntimeError(f'{hint} (exit {result.returncode})。详见 logs/environment-check.json 和 environment-process.log')
-    print('Environment check passed: Python, native CPU libraries, selected model and Azalea.', flush=True)
 
 
 def supervise_server(args, model, threads):
@@ -179,63 +138,17 @@ def load_app(model, save_dir, simulations=None, threads=None):
                   backend='onnx', threads=threads)
     app.enable_model_library(ROOT / 'models', save_model)
     app.on_threads_changed = save_threads
-    # 首个计时动作前，加载或编译原生内核并预热真实搜索批次。
-    # 预热树随后丢弃，不参与正式对局。
-    from hex.local_players import TrainedPlayer
-    TrainedPlayer(app.game, app.net, 65, 0).choose(app.game.getInitBoard(), 1)
     return app
 
 
-def self_test(threads=None):
-    """执行本地规则、原生内核、模型和对弈接口自检，将验证结果写入本地日志。"""
-    import numpy as np
-    import numba
-    import onnxruntime
-    from hex.HexLogic import has_won_bfs
-    report = dict(python=sys.version, platform=sys.platform, onnxruntime=onnxruntime.__version__,
-                  numpy=np.__version__, numba=numba.__version__, models=[])
-    with tempfile.TemporaryDirectory(prefix='hex-selftest-') as folder:
-        from hex.model_library import ModelLibrary
-        entries = [e for e in ModelLibrary(ROOT / 'models').entries if e['available']]
-        for entry in entries:
-            app = load_app(entry['id'], folder, simulations=80, threads=threads)
-            if app.reference is None:
-                raise RuntimeError(app.reference_error)
-            assert app.metadata.get('iteration') == entry['iteration']
-            for mine in (1, -1):
-                state = app.new_session(mode='azalea', mine=mine, simulations=80, manual_opening=True)
-                session = app.sessions[state['id']]
-                for action in (60, 61):
-                    session.human_move(*divmod(action, 11), session.revision)
-                for engine in ('trained', 'azalea'):
-                    before = session.board.copy()
-                    revision = session.revision
-                    session.analyze(revision, engine)
-                    assert len(session.analysis['candidates']) == 3
-                    assert session.revision == revision and np.array_equal(session.board, before)
-                session.finish_opening(session.revision)
-                session.step(session.revision)
-                session.step(session.revision)
-                assert len(session.moves) == 4
-                assert not has_won_bfs(session.board, 1) and not has_won_bfs(session.board, -1)
-            report['models'].append(dict(id=entry['id'], iteration=entry['iteration'], threads=app.threads, manual_opening=True,
-                                         both_analysis_engines=True, both_seats=True, handoff=True))
-    if 'torch' in sys.modules:
-        raise RuntimeError('Portable inference unexpectedly imported PyTorch')
-    report.update(status='passed', pytorch_imported=False)
-    (ROOT / 'logs' / 'self-test.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-    print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
 
 
 def main():
-    """解析便携启动选项，分派环境检查、自检或服务启动，显示原生进程退出信息并保存错误日志。"""
+    """解析便携启动选项并启动服务，记录进程退出信息和错误日志。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', help='Iteration number or ONNX path relative to models; default remembers last selection')
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--no-browser', action='store_true')
-    parser.add_argument('--self-test', action='store_true')
-    parser.add_argument('--check-environment', action='store_true')
-    parser.add_argument('--environment-worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--server-worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--threads', type=int, default=None, help='CPU inference threads; default up to 4')
     args = parser.parse_args()
@@ -249,21 +162,6 @@ def main():
     try:
         threads = args.threads if args.threads is not None else saved_threads()
         model = choose_model(args.model)
-        if args.environment_worker:
-            from environment_check import check_environment
-            result = check_environment(ROOT, threads, model)
-            print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
-            if result['status'] != 'passed':
-                raise SystemExit(1)
-            return
-        if not args.server_worker:
-            print('Checking Python and native CPU inference environment...', flush=True)
-            startup_check(threads, model)
-        if args.check_environment:
-            print((ROOT / 'logs/environment-check.json').read_text(encoding='utf-8'), flush=True)
-            return
-        if args.self_test:
-            return self_test(threads)
         if not args.server_worker:
             return supervise_server(args, model, threads)
         print('Loading optimized CPU models (ONNX Runtime native engine)...', flush=True)

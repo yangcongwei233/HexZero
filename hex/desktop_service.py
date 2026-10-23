@@ -16,10 +16,10 @@ SEARCH_PRESETS = (800, 1200, 2000, 3200, 6400, 12800, 51200)
 
 
 class DesktopService:
-    """管理模型、会话和偏好；ONNX 与清单成对加载并校验 SHA-256。"""
+    """管理模型、会话和偏好；公开版直接加载，比赛版保留启动校验。"""
 
     def __init__(self, models, data, model=None, threads=None, competition=False):
-        """读取偏好、扫描并校验模型，建立桌面对局服务并写入本地环境报告；公开版可降级为人人对弈，比赛版严格验证固定模型。"""
+        """读取偏好并建立对局；无模型时提供人人模式，比赛版检查固定权重和运行环境。"""
         self.models, self.data = Path(models).resolve(), Path(data).resolve()
         self.competition = bool(competition)
         self.model_error = None
@@ -27,10 +27,12 @@ class DesktopService:
         self.data.mkdir(parents=True, exist_ok=True)
         self.settings_path = self.data / 'settings.json'
         self.settings = self._read_settings()
-        report = dict(python=platform.python_version(), system=platform.platform(),
-                      pointer_bits=struct.calcsize('P') * 8, status='checking')
+        report = {}
+        if self.competition:
+            report = dict(python=platform.python_version(), system=platform.platform(),
+                          pointer_bits=struct.calcsize('P') * 8, status='checking')
         try:
-            if report['pointer_bits'] != 64:
+            if self.competition and report['pointer_bits'] != 64:
                 raise ValueError('ONNX 推理需要 64 位 Python')
             threads = threads if threads is not None else self.settings.get('threads', 4)
             integer(threads, 'CPU 线程数', 4, 16)
@@ -58,10 +60,11 @@ class DesktopService:
                 # 桌面不传 reference_checkpoint；复制 Azalea 权重也不会启用对战入口。
                 """建立只使用本项目模型的桌面核心，复用线程和搜索配置；没有权重时创建人人对弈应用。"""
                 return HexApp(checkpoint, self.data / 'games', device='cpu',
-                              backend='onnx', threads=threads, simulations=sims)
+                              backend='onnx', threads=threads, simulations=sims,
+                              verify_model=self.competition)
             try:
                 self.app = create_app(self.models / ident if ident else None)
-                if self.app.net is not None:
+                if self.competition and self.app.net is not None:
                     self._warmup()
             except Exception as exc:
                 if self.competition or model is not None:
@@ -73,21 +76,21 @@ class DesktopService:
                 self.app.enable_model_library(self.models)
             mode = 'human' if self.app.net is not None else 'pvp'
             self.session_id = self.app.new_session(mode=mode, simulations=sims)['id']
-            import numpy
-            report.update(status='passed', numpy=numpy.__version__,
-                          search_backend=self.search_backend, threads=threads,
-                          competition=self.competition, model_available=self.app.net is not None,
-                          model_error=self.model_error)
-            if self.app.net is not None:
+            if self.competition:
+                import numpy
                 import onnxruntime
-                report.update(onnxruntime=onnxruntime.__version__, precision='FP32',
+                report.update(status='passed', numpy=numpy.__version__,
+                              search_backend=self.search_backend, threads=threads,
+                              competition=True, model_available=True,
+                              onnxruntime=onnxruntime.__version__, precision='FP32',
                               model=ident, model_sha256=self.app.net.manifest['onnx_sha256'])
         except Exception as exc:
             report.update(status='failed', error=f'{type(exc).__name__}: {exc}')
             raise
         finally:
-            (self.data / 'environment-check.json').write_text(
-                json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            if self.competition:
+                (self.data / 'environment-check.json').write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
     def _warmup(self):
         """用独立小树验证真实推理，不污染实战访问量；比赛版同时验证固定权重。"""
@@ -100,7 +103,7 @@ class DesktopService:
         self.search_backend = getattr(probe.policy.mcts, 'backend', 'python')
 
     def _read_settings(self):
-        """损坏的偏好文件不应阻止启动；模型清单损坏则由 ModelLibrary 严格拒绝。"""
+        """读取偏好，文件不存在或无法解析时使用默认设置。"""
         try:
             result = json.loads(self.settings_path.read_text(encoding='utf-8'))
             return result if isinstance(result, dict) else {}
@@ -124,8 +127,10 @@ class DesktopService:
         config = self.app.config()
         config.update(competition=self.competition, modelLocked=self.competition,
                       modelError=self.model_error, playModes=['pvp', 'human'] if self.app.net is not None else ['pvp'])
+        engine = next(iter(self.session.engines.values()), None)
+        backend = getattr(engine.policy.mcts, 'backend', 'python') if engine else self.search_backend
         return copy.deepcopy(dict(config=config, session=self.session.state(),
-                                  sampled_at=time.monotonic(), search_backend=self.search_backend))
+                                  sampled_at=time.monotonic(), search_backend=backend))
 
     def perform(self, operation, **params):
         """串行分派操作；revision 校验局面，棋谱仅本地保存，不加入训练池。"""
@@ -175,7 +180,6 @@ class DesktopService:
                 clock_minutes=session.clock.minutes)
             self.session_id = result['session']['id']
             self.model_error = None
-            self._warmup()
             self._save_settings(model=params['ident'])
         elif operation == 'refresh':
             self.app.model_catalog(refresh=True)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .model_manifest import load_manifest
+from .model_manifest import load_manifest, model_revision
 
 
 def default_threads():
@@ -24,10 +24,12 @@ def validate_trained_network(net):
 
 
 class OnnxNetwork:
-    def __init__(self, model, kind, threads=None):
-        """校验模型清单，按线程数建立开启图优化的 CPU 会话，并读取网络尺寸及输入输出约定。"""
+    def __init__(self, model, kind, threads=None, verify=False):
+        """直接加载 ONNX CPU 会话；比赛模式额外检查文件及接口。"""
         import onnxruntime as ort
-        self.manifest = load_manifest(model, kind)
+        self.file_revision = model_revision(model)
+        self.verify = verify
+        self.manifest = load_manifest(model, kind, verify=verify)
         self.board_size = self.manifest['board_size']
         self.kind = kind
         self.threads = default_threads() if threads is None else threads
@@ -39,11 +41,12 @@ class OnnxNetwork:
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.session = ort.InferenceSession(str(model), options, providers=['CPUExecutionProvider'])
-        expected = ['board'] if kind == 'trained' else ['board', 'legal_moves']
-        if [x.name for x in self.session.get_inputs()] != expected:
-            raise ValueError('ONNX 模型输入不匹配')
-        if [x.name for x in self.session.get_outputs()] != ['log_policy', 'value']:
-            raise ValueError('ONNX 模型输出不匹配')
+        if verify:
+            expected = ['board'] if kind == 'trained' else ['board', 'legal_moves']
+            if [x.name for x in self.session.get_inputs()] != expected:
+                raise ValueError('ONNX 模型输入不匹配')
+            if [x.name for x in self.session.get_outputs()] != ['log_policy', 'value']:
+                raise ValueError('ONNX 模型输出不匹配')
         self.checkpoint_metadata = self.manifest.get('metadata', {}).copy()
 
     def eval(self):

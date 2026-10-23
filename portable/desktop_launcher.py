@@ -27,12 +27,14 @@ def main():
     """设置便携运行目录和本地日志，识别公开版或比赛版配置后启动桌面程序，异常时保留可诊断信息。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--check-environment', action='store_true')
+    if COMPETITION:
+        parser.add_argument('--check-environment', action='store_true')
     args, options = parser.parse_known_args()
+    check_environment = COMPETITION and args.check_environment
     logs = ROOT / 'userdata/logs'
     logs.mkdir(parents=True, exist_ok=True)
     if args.worker:
-        if args.check_environment:
+        if check_environment:
             import tkinter as tk
             from hex.desktop_service import DesktopService
             window = tk.Tk()
@@ -49,11 +51,11 @@ def main():
                           *options, *(['--competition'] if COMPETITION else [])])
         return
     command = [sys.executable, '-u', '-X', 'utf8', '-X', 'faulthandler', str(Path(__file__).resolve()), '--worker']
-    if args.check_environment:
+    if check_environment:
         command.append('--check-environment')
     command.extend(options)
     path = logs / ('desktop-' + time.strftime('%Y%m%d-%H%M%S') + '.log')
-    print('正在打开 HexZero 桌面窗口；首次启动会检查模型并预热搜索。', flush=True)
+    print('正在打开 HexZero 桌面窗口…', flush=True)
     with path.open('w', encoding='utf-8') as output:
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, encoding='utf-8', errors='replace') as process:

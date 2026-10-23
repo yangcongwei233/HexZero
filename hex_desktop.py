@@ -98,7 +98,7 @@ class DesktopWindow:
         left, right = ttk.Frame(layout), ttk.Frame(layout, width=405)
         layout.add(left, weight=3)
         layout.add(right, weight=2)
-        self.turn = tk.StringVar(value='正在加载模型与环境…')
+        self.turn = tk.StringVar(value='正在加载模型…')
         ttk.Label(left, textvariable=self.turn, font=(self.font_family, 13, 'bold'), padding=10).pack(fill='x')
         self.canvas = tk.Canvas(left, background='#f4f6f2', highlightthickness=0, width=660, height=560)
         self.canvas.pack(fill='both', expand=True)
@@ -117,7 +117,7 @@ class DesktopWindow:
         self._build_analysis()
         self._build_record()
         self._build_settings()
-        self.status = tk.StringVar(value='正在检查模型；未放入模型时可人人对弈。')
+        self.status = tk.StringVar(value='正在加载；无模型时可人人对弈。')
         ttk.Label(self.root, textvariable=self.status, padding=10, wraplength=1180).pack(fill='x')
         self.progress = ttk.Progressbar(self.root, mode='indeterminate')
         self.progress.pack(fill='x')
@@ -231,7 +231,7 @@ class DesktopWindow:
         ttk.Label(advanced, text='种子用于并列走法的选择与复现，不保证改变开局。\n比赛默认 0；丰富开局请使用“手动设置开局”。\n启用用时限制后，机器速度也会影响搜索结果。', wraplength=330).grid(row=3, column=0, columnspan=2, pady=8, sticky='w')
 
     def _load(self):
-        """模型初始化也在工作线程执行，首次 Numba 编译不会冻结窗口。"""
+        """在工作线程加载模型，避免窗口卡顿。"""
         def initialize():
             """在后台线程创建桌面服务，返回首个只读快照，避免主线程直接持有推理执行流程。"""
             from hex.desktop_service import DesktopService
@@ -249,7 +249,7 @@ class DesktopWindow:
         self.operation = operation
         self.future = self.executor.submit(self.service.perform, operation, **params)
         if operation not in ('state', 'refresh'):
-            self.status.set({'step': '模型正在搜索…', 'analyze': '正在分析当前局面…', 'model': '正在校验并切换模型…', 'close': '正在保存棋局…'}.get(operation, '正在处理…'))
+            self.status.set({'step': '模型正在搜索…', 'analyze': '正在分析当前局面…', 'model': '正在加载模型…', 'close': '正在保存棋局…'}.get(operation, '正在处理…'))
             self.progress.start(12)
         self._control_states()
 
@@ -642,7 +642,7 @@ class DesktopWindow:
         dialog.grab_set()
 
     def change_model(self):
-        """按界面标签找到真实模型标识，提交校验和切换请求。"""
+        """按界面标签找到模型标识并提交切换请求。"""
         entry = next((entry for entry in self.model_entries if entry['label'] == self.model_choice.get()), None)
         if entry:
             self.command('model', ident=entry['id'])

@@ -430,12 +430,13 @@ class HexSession:
 
 
 class HexApp:
-    """管理网络和会话；换模先校验、保存旧局，再建立新会话。"""
+    """管理网络和会话；加载新模型后保存旧局，再建立新会话。"""
     def __init__(self, checkpoint, save_dir, device='cpu', simulations=3200,
                  reference_source=None, reference_checkpoint=None, board_size=None,
-                 backend='torch', threads=None):
+                 backend='torch', threads=None, verify_model=False):
         """初始化规则与会话管理，按后端加载本项目模型及可选参考引擎；无模型时保留人人对弈和棋谱能力。"""
         self.checkpoint = Path(checkpoint).resolve() if checkpoint is not None else None
+        self.verify_model = verify_model
         self.net = None
         if backend not in ('torch', 'onnx'):
             raise ValueError('未知推理后端')
@@ -448,7 +449,7 @@ class HexApp:
             if device != 'cpu':
                 raise ValueError('ONNX 本地对弈后端只支持 CPU')
             from hex.onnx_inference import OnnxNetwork
-            self.net = OnnxNetwork(self.checkpoint, 'trained', threads)
+            self.net = OnnxNetwork(self.checkpoint, 'trained', threads, verify=verify_model)
             state = dict(board_size=[self.net.board_size] * 2,
                          metadata=self.net.checkpoint_metadata.copy())
             self.threads = self.net.threads
@@ -512,22 +513,18 @@ class HexApp:
             return None
         result = self.model_library.refresh() if refresh else self.model_library.snapshot()
         result.update(selectedId=self.model_library.model_id(self.checkpoint) if self.checkpoint else None,
-                      activeSha256=self.net.manifest['onnx_sha256'] if self.net else None)
+                      activeRevision=self.net.file_revision if self.net else None)
         return result
 
     def select_model(self, ident, mode='human', mine=1, simulations=None, seed=0, move_time_ms=0, clock_minutes=0):
-        """先校验并试运行新模型，再保存原棋局并替换网络及会话，避免加载失败破坏当前状态。"""
+        """加载新模型后保存旧棋局，再替换网络并新开会话。"""
         if self.model_library is None:
             raise ValueError('未配置模型目录')
         move_time_ms = self.validate_move_time(move_time_ms)
         simulations = self.validate_new_session(mode, mine, simulations, seed, False, require_model=False)
-        from hex.onnx_inference import OnnxNetwork, validate_trained_network
+        from hex.onnx_inference import OnnxNetwork
         checkpoint = self.model_library.resolve(ident)
-        try:
-            net = OnnxNetwork(checkpoint, 'trained', self.threads)
-            validate_trained_network(net)
-        except Exception as exc:
-            raise ValueError(f'模型试运行失败，未切换：{exc}') from exc
+        net = OnnxNetwork(checkpoint, 'trained', self.threads, verify=self.verify_model)
         # 替换应用状态前，先按原模型元数据保存棋局。
         for session in self.sessions.values():
             session.save()
@@ -555,11 +552,11 @@ class HexApp:
             from hex.onnx_inference import OnnxNetwork
             # 先构建双方会话再切换；对弈者共享网络对象，
             # 因此已有搜索树和棋局状态继续有效。
-            replacements = [(self.net, OnnxNetwork(self.checkpoint, 'trained', threads))]
+            replacements = [(self.net, OnnxNetwork(self.checkpoint, 'trained', threads, verify=self.verify_model))]
             if self.reference:
                 replacements.append((self.reference.prototype.net,
                                      OnnxNetwork(self.reference.checkpoint, 'azalea', threads)))
-            if any(old.manifest['onnx_sha256'] != new.manifest['onnx_sha256'] for old, new in replacements):
+            if any(old.file_revision != new.file_revision for old, new in replacements):
                 raise ValueError('当前模型文件已被替换，请重新选择模型并新开局')
             if self.on_threads_changed:
                 self.on_threads_changed(threads)

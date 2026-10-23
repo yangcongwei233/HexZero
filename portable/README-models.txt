@@ -6,7 +6,7 @@ models/iteration_轮次/trained.onnx
 models/iteration_轮次/trained.onnx.json
 
 复制完成后在设置中刷新、选择并加载模型，随后可新开人机对弈。
-目录空闲时约每 5 秒扫描；不完整、格式不兼容或哈希错误的模型不能加载。
+目录空闲时约每 5 秒扫描。
 支持 HexZero 11×11、canonical_version=1、FP32 ONNX，不支持直接加载 PyTorch 权重。
 开发环境转换命令：
 python scripts/export_play_onnx.py --checkpoint checkpoint_新轮次.pth.tar --output iteration_新轮次

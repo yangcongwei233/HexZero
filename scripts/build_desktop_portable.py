@@ -22,7 +22,7 @@ def copy_sources(source, target):
 
 
 def main():
-    """从基础离线包和 Tk 运行库组装桌面包，按公开或比赛模式处理模型及配置，生成 ZIP 和校验文件。"""
+    """组装桌面 ZIP；公开版不带自检入口和校验清单，比赛版保留。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', type=Path, required=True)
     parser.add_argument('--tk-runtime', type=Path, required=True)
@@ -60,8 +60,9 @@ def main():
         copy_sources(source, target)
     (runtime/'python311._pth').write_text('DLLs\nLib\npython311.zip\n.\nLib/site-packages\n../app\nimport site\n')
     app.mkdir()
-    for name in ('hex_desktop.py', 'hex_play_core.py', 'Game.py', 'NeuralNet.py', 'MCTS.py', 'utils.py', 'LICENSE'):
+    for name in ('hex_desktop.py', 'hex_play_core.py', 'Game.py', 'NeuralNet.py', 'MCTS.py', 'utils.py', 'LICENSE', 'NOTICE'):
         shutil.copy2(ROOT / name, app / name)
+    copy_sources(ROOT/'licenses', app/'licenses')
     copy_sources(ROOT/'hex', app/'hex')
     if not (app/'hex/native/hex_search.dll').is_file():
         raise FileNotFoundError('Build the Windows C++ search DLL before packaging')
@@ -75,7 +76,10 @@ def main():
     (output/'models').mkdir(exist_ok=True)
     shutil.copy2(ROOT/'portable/README-Desktop.txt', output/'README-Desktop.txt')
     shutil.copy2(ROOT/'portable/README-models.txt', output/'models/README.txt')
-    for name, options in (('START_HEX.bat', ''), ('CHECK_ENV.bat', '--check-environment')):
+    launchers = [('START_HEX.bat', '')]
+    if args.edition == 'competition':
+        launchers.append(('CHECK_ENV.bat', '--check-environment'))
+    for name, options in launchers:
         content = ('@echo off\nsetlocal\nchcp 65001 >nul\ncd /d "%~dp0"\n'
                    'set "PYTHONUTF8=1"\n'
                    'if not exist "%~dp0runtime\\python.exe" (\n'
@@ -101,20 +105,23 @@ def main():
                     model_locked=args.edition == 'competition', azalea_bundled=False,
                     default_simulations=12800, default_threads=4,
                     selectable_threads=list(range(4,17)), simulations=[800,1200,2000,3200,6400,12800,51200],
-                    search_dll_sha256=digest(app/'hex/native/hex_search.dll'),
-                    base_archive_sha256=digest(args.base),
                     tcltk_source='https://www.python.org/ftp/python/3.11.9/amd64/tcltk.msi',
-                    tcltk_files={name:digest(tk_runtime/name) for name in ('DLLs/_tkinter.pyd','DLLs/tcl86t.dll','DLLs/tk86t.dll')},
-                    validation='See local release validation report; Windows target execution not yet performed')
+                    license='Apache-2.0; bundled third-party notices retained')
+    if args.edition == 'competition':
+        manifest.update(search_dll_sha256=digest(app/'hex/native/hex_search.dll'),
+                        base_archive_sha256=digest(args.base),
+                        tcltk_files={name:digest(tk_runtime/name) for name in ('DLLs/_tkinter.pyd','DLLs/tcl86t.dll','DLLs/tk86t.dll')})
     (output/'build-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    files=sorted(p for p in output.rglob('*') if p.is_file())
-    (output/'SHA256SUMS.txt').write_text(''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files))
+    if args.edition == 'competition':
+        files=sorted(p for p in output.rglob('*') if p.is_file())
+        (output/'SHA256SUMS.txt').write_text(''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files))
     archive=output.with_suffix('.zip')
     with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as zipout:
         for path in sorted(p for p in output.rglob('*') if p.is_file()):
             zipout.write(path,path.relative_to(output.parent))
-    archive.with_suffix('.zip.sha256').write_text(f'{digest(archive)}  {archive.name}\n')
-    print(json.dumps(dict(archive=str(archive),bytes=archive.stat().st_size,sha256=digest(archive)),indent=2))
+    if args.edition == 'competition':
+        archive.with_suffix('.zip.sha256').write_text(f'{digest(archive)}  {archive.name}\n')
+    print(json.dumps(dict(archive=str(archive),bytes=archive.stat().st_size),indent=2))
 
 
 if __name__ == '__main__':

@@ -4,10 +4,22 @@ import json
 from pathlib import Path
 
 
-def load_manifest(model, kind):
-    """读取模型清单并校验格式、类型、棋盘尺寸及权重 SHA-256；不加载原生推理库。"""
+def model_revision(model):
+    """读取文件大小和时间，供模型列表识别覆盖更新。"""
+    model = Path(model)
+    values = []
+    for path in (model, model.with_suffix(model.suffix + '.json')):
+        info = path.stat()
+        values.extend((info.st_size, info.st_mtime_ns, info.st_ctime_ns))
+    return ':'.join(map(str, values))
+
+
+def load_manifest(model, kind, verify=False):
+    """读取模型清单；仅比赛模式检查格式、棋盘尺寸和 SHA-256。"""
     model = Path(model)
     data = json.loads(model.with_suffix(model.suffix + '.json').read_text(encoding='utf-8'))
+    if not verify:
+        return data
     if not isinstance(data, dict) or data.get('format') != 'hexzero-onnx-v1' or data.get('kind') != kind:
         raise ValueError(f'ONNX 模型类型或格式不匹配：{model.name}')
     if hashlib.sha256(model.read_bytes()).hexdigest() != data.get('onnx_sha256'):

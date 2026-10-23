@@ -1,0 +1,15 @@
+HexZero
+Copyright 2026 HexZero contributors
+
+HexZero 的新增代码和修改采用 Apache License 2.0。
+
+本项目基于 alpha-zero-general：
+https://github.com/suragnair/alpha-zero-general
+Copyright (c) 2025 Surag Nair
+原有代码保留 MIT 许可，全文见 licenses/alpha-zero-general-MIT.txt。
+
+hex/azalea_cpu/ 派生自 Azalea：
+https://github.com/jseppanen/azalea
+保留其 Apache-2.0 许可及修改说明，见该目录的 LICENSE 和 NOTICE.txt。
+
+其他第三方组件保留各自的版权和许可声明。

@@ -1,7 +1,7 @@
 Azalea inference adaptation
 Original source: https://github.com/jseppanen/azalea
 License: Apache-2.0; full text in LICENSE.
-Source copied from the adjacent azalea project; hashes in upstream-sha256.json.
+Source adapted from the Azalea project linked above.
 Changes on 2026-10-15: replace PyTorch batch conversion with NumPy; remove training/loading dependencies and no_grad context. Policy initialization accepts exported metadata.
 Search selection, virtual loss, deduplication, backup, normalization, temperature, tree storage and original simulation-loop accounting are unchanged.
 Changes on 2026-10-16: compile virtual-loss and backup numeric loops with Numba (fastmath disabled); grow tree arrays on demand up to the original node limit; avoid temporary root wrappers. Leaf traversal, arithmetic order, float32 storage and search budgets are preserved. Reference-environment snapshots are cached for unchanged boards in hex/local_players.py.

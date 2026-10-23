@@ -82,7 +82,7 @@ function updateControls() {
   $('modelSelect').disabled = $('refreshModels').disabled = busy || autoplay || modelCatalogBusy;
   const candidate = config?.modelLibrary?.entries.find(e => e.id === $('modelSelect').value);
   $('applyModel').disabled = busy || autoplay || modelCatalogBusy || !candidate?.available ||
-    (candidate.id === config.modelLibrary.selectedId && candidate.sha256 === config.modelLibrary.activeSha256);
+    (candidate.id === config.modelLibrary.selectedId && candidate.revision === config.modelLibrary.activeRevision);
   for (const id of ['importRecord','exportTxt','saveRecordMetadata','redTeam','blueTeam','recordResult','timePlace','eventName']) $(id).disabled = busy || autoplay;
   $('recordFile').disabled = busy || autoplay;
   const cursor = state?.replayCursor || 0, total = state?.replayTotal || 0;
@@ -387,7 +387,7 @@ function renderModelLibrary() {
   $('modelProblems').hidden = !$('modelErrors').children.length;
   const active=library.entries.find(e=>e.id===library.selectedId);
   $('modelStatus').textContent = !active?.available ? '当前模型文件已移走；已加载的对局仍可继续，请选择有效模型。' :
-    active.sha256!==library.activeSha256 ? '当前模型文件已更新；点击“切换并新开局”加载新权重。' :
+    active.revision!==library.activeRevision ? '当前模型文件已更新；点击“切换并新开局”加载新权重。' :
     `已发现 ${library.entries.filter(e=>e.available).length} 个可用模型`;
   $('modelStatus').title=library.directory;
   updateControls();
@@ -398,7 +398,7 @@ async function refreshModelLibrary() {
   modelCatalogBusy=true;updateControls();
   try {
     const library=await request('/api/models');
-    if (library.selectedId!==config.modelLibrary.selectedId || library.activeSha256!==config.modelLibrary.activeSha256) {
+    if (library.selectedId!==config.modelLibrary.selectedId || library.activeRevision!==config.modelLibrary.activeRevision) {
       // 另一窗口已切换全局引擎，原棋局已在切换时保存。
       location.reload();return;
     }
@@ -411,7 +411,7 @@ $('modelSelect').addEventListener('change',updateControls);
 $('applyModel').addEventListener('click',async()=>{
   if(busy || autoplay || modelCatalogBusy)return;
   clearTimeout(timer);analysisPaused=true;pendingAnalysis=null;busy=true;busyTask='/api/select-model';render();
-  $('modelStatus').textContent='正在校验并加载模型…';
+  $('modelStatus').textContent='正在加载模型…';
   try {
     const result=await request('/api/select-model',{modelId:$('modelSelect').value,mode:$('mode').value,
       myPlayer:Number($('myPlayer').value),mctsSims:Number($('mctsSims').value),seed:Number($('seed').value),moveTimeMs:Number($('moveTimeMs').value),clockMinutes:Number($('clockMinutes').value)});

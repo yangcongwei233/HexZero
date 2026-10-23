@@ -31,13 +31,6 @@ CPU 线程设置
 默认最多 4 线程，较少逻辑处理器的电脑初始值会自动减少。
 线程数是可参与计算的 CPU 线程数，不是分配固定物理核心；16 线程不保证比 4 线程快。
 
-新电脑环境检查
-正常启动会先检查 Python、系统架构、目录写权限、C++ 推理运行库、Numba 棋盘计算与搜索内核，
-并对当前所选模型与 Azalea 校验文件并实际运行 CPU 推理。其他模型可用 SELF_TEST.bat 逐个检查。
-也可双击 CHECK_ENV.bat 单独检查。结果在 logs\environment-check.json。
-原生库崩溃、CPU 指令不支持或缺少 DLL 时，父启动器会报告失败；详细输出在 environment-process.log。
-本包无需在线安装依赖。检查通过证明本机能运行，不代表已测定所有局面的速度或长期稳定性。
-
 手动设置开局
 先选择己方为人类或 Azalea、己方先后手，再点击“新建手动开局”。
 在棋盘上交替放置红棋、蓝棋，手数不限。此时模型不会自动抢走下一步。
@@ -85,9 +78,8 @@ SAMPLE_HEX.txt 是用户提供格式的示例节选，可直接导入，不能�
 详细文字、Q 和变化图保存在 JSON；比赛 TXT 只写标准整数 MARK，避免破坏比赛格式。
 旧版 JSON 按先后手映射为红先蓝后，保留原来的内部棋盘坐标，不改变模型输入和棋局连通关系。
 
-检查与反馈
-双击 SELF_TEST.bat 检查目录中所有可用训练模型、手动开局、双方分析和落子交接。
-结果会写入 logs\self-test.json。首次启动的 Numba 编译可能稍慢。
+使用提示
+首次落子可能需要编译 Numba 内核。
 如果浏览器没有自动打开，复制控制台中的 http://127.0.0.1:端口/ 地址。
 如果启动失败，请保留 logs 中最新日志。不要只复制一个 BAT 或 Python 文件。
 
@@ -100,7 +92,8 @@ ONNX Runtime 说明：https://onnxruntime.ai/docs/install/
 线程配置：https://onnxruntime.ai/docs/performance/tune-performance/threading.html
 MSVC 运行库说明：https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
 MSVC DLL 按应用目录部署，不会修改系统运行库；许可证在 runtime\Microsoft-VC-License.rtf。
-HexZero 许可证：app\LICENSE；Azalea 许可证：app\vendor\azalea\LICENSE。
+HexZero 许可证：app\LICENSE；上游声明：app\NOTICE 和 app\licenses。
+Azalea 许可证：app\vendor\azalea\LICENSE。
 Azalea 搜索的 NumPy/ONNX 适配源码：app\hex\azalea_cpu，修改说明见其中 NOTICE.txt。
 原始 pth 权重仍保留；运行使用同目录的 onnx 权重，源权重摘要及精度校验记录见 onnx.json。
 Python 与各依赖的许可证保留在 runtime 及对应的 dist-info 目录中。
